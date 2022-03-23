@@ -22,6 +22,8 @@ def get_items_list(url, extensions):
     items = soup.find_all('a', {'class': 'image'})
     for item in items:
         item_url = item['href']
+        if 'cdn.bunkr.is' in item_url:
+            item_url = item_url.replace('cdn.bunkr.is', 'media-files.bunkr.is')
         extension = get_extension_from_url(item_url)
         if extension in extensions_list or len(extensions_list) == 0:
             print(f"[+] Downloading {item_url}")
