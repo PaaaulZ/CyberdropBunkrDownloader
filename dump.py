@@ -18,7 +18,7 @@ def get_items_list(url, extensions):
     if r.status_code != 200:
         raise Exception(f"HTTP error {r.status_code}")
 
-    soup = BeautifulSoup(r.content, 'lxml')
+    soup = BeautifulSoup(r.content, 'html.parser')
     items = soup.find_all('a', {'class': 'image'})
     for item in items:
         item_url = item['href']
