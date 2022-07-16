@@ -6,6 +6,7 @@ import sys
 import os
 from os.path import splitext
 from urllib.parse import urlparse 
+import json
 
 
 def get_items_list(url, extensions):
@@ -19,11 +20,19 @@ def get_items_list(url, extensions):
         raise Exception(f"HTTP error {r.status_code}")
 
     soup = BeautifulSoup(r.content, 'html.parser')
-    items = soup.find_all('a', {'class': 'image'})
-    for item in items:
-        item_url = item['href']
-        if 'cdn.bunkr.is' in item_url:
-            item_url = item_url.replace('cdn.bunkr.is', 'media-files.bunkr.is')
+    if "bunkr.is" in url:
+        json_data_element = soup.find("script", {"id": "__NEXT_DATA__"})
+        json_data = json.loads(json_data_element.string)
+        files = json_data["props"]["pageProps"]["files"]
+        item_urls = [
+            "https://media-files.bunkr.is/" + file["name"]
+            for file in files
+        ]
+    else:
+        items = soup.find_all('a', {'class': 'image'})
+        item_urls = [item['href'] for item in items]
+
+    for item_url in item_urls:
         extension = get_extension_from_url(item_url)
         if extension in extensions_list or len(extensions_list) == 0:
             print(f"[+] Downloading {item_url}")
