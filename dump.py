@@ -1,77 +1,72 @@
-from distutils import extension
 import requests
-from bs4 import BeautifulSoup
+import json
 import argparse
 import sys
 import os
-from os.path import splitext
+from bs4 import BeautifulSoup
 from urllib.parse import urlparse 
-import json
 
 
-def get_items_list(url, extensions):
+def get_items_list(url, extensions, min_file_size):
 
-    extensions_list = []
-    if extensions is not None and extensions != "":
-        extensions_list = extensions.split(',')
-
+    extensions_list = extensions.split(',') if extensions is not None else []
+    
     r = requests.get(url)
     if r.status_code != 200:
         raise Exception(f"HTTP error {r.status_code}")
 
     soup = BeautifulSoup(r.content, 'html.parser')
-    if "bunkr.is" in url:
+    if get_url_data(url)['hostname'] == 'bunkr.is':
+        item_urls = []
         json_data_element = soup.find("script", {"id": "__NEXT_DATA__"})
         json_data = json.loads(json_data_element.string)
-        files = json_data["props"]["pageProps"]["files"]
-        item_urls = [
-            "https://media-files.bunkr.is/" + file["name"]
-            for file in files
-        ]
+        files = json_data['props']['pageProps']['album']['files']
+        item_urls = [f"{file['cdn']}/{file['name']}" for file in files if int(file['size']) > min_file_size]
+        album_name = json_data['props']['pageProps']['album']['name']
     else:
         items = soup.find_all('a', {'class': 'image'})
         item_urls = [item['href'] for item in items]
+        album_name = soup.find('h1', {'id': 'title'}).text
 
     for item_url in item_urls:
-        extension = get_extension_from_url(item_url)
+        extension = get_url_data(item_url)['extension']
         if extension in extensions_list or len(extensions_list) == 0:
             print(f"[+] Downloading {item_url}")
-            download(item_url)
+            download(item_url, album_name)
 
+def download(item_url, album_name=None):
 
-def download(item_url):
+    if not os.path.isdir('downloads'):
+        os.mkdir('downloads')
 
-    if not os.path.isdir('cyberdrop_downloads'):
-        os.mkdir('cyberdrop_downloads')
+    if album_name is not None:
+        download_path = os.path.join('downloads',album_name)
+        if not os.path.isdir(download_path):
+            os.mkdir(download_path)
+    else:
+        download_path = 'downloads'
     
-    file_name = get_file_name_from_url(item_url)
-    with open(os.path.join('cyberdrop_downloads', file_name), 'wb') as f:
+    file_name = get_url_data(item_url)['file_name']
+    with open(os.path.join(download_path, file_name), 'wb') as f:
         r = requests.get(item_url)
         f.write(r.content)
 
     return
 
-def get_extension_from_url(url):
-    path = urlparse(url).path
-    ext = splitext(path)[1]
-    return ext
+def get_url_data(url):
+    parsed_url = urlparse(url)
+    return {'file_name': os.path.basename(parsed_url.path), 'extension': os.path.splitext(parsed_url.path)[1], 'hostname': parsed_url.hostname}
 
-def get_file_name_from_url(url):
-    path = urlparse(url).path
-    file_name = os.path.basename(path)
-    return file_name
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(sys.argv[1:])
-    parser.add_argument("-u", help="Url to fetch", type=str)
+    parser.add_argument("-u", help="Url to fetch", type=str, required=True)
     parser.add_argument("-e", help="Extensions to download (comma separated)", type=str)
+    parser.add_argument("-s", help="Minimum file size to download (in bytes, only for Bunkr)", type=int, const=0, default=0, nargs='?')
 
     args = parser.parse_args()
 
-    if args.u is None or args.u == "":
-        raise Exception("No url specified")
-
-    get_items_list(args.u, args.e)
+    get_items_list(args.u, args.e, args.s)
     
     
