@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urlparse 
 
 
-def get_items_list(url, extensions, min_file_size):
+def get_items_list(url, extensions, min_file_size, use_album_id):
 
     extensions_list = extensions.split(',') if extensions is not None else []
     
@@ -21,8 +21,8 @@ def get_items_list(url, extensions, min_file_size):
         json_data_element = soup.find("script", {"id": "__NEXT_DATA__"})
         json_data = json.loads(json_data_element.string)
         files = json_data['props']['pageProps']['album']['files']
-        item_urls = [f"{file['cdn']}/{file['name']}" for file in files if int(file['size']) > min_file_size]
-        album_name = json_data['props']['pageProps']['album']['name']
+        item_urls = [f"{file['cdn']}/{file['name']}" for file in files if int(file['size']) > (min_file_size * 1000)]
+        album_name = json_data['props']['pageProps']['album']['name'] if not use_album_id else str(json_data['props']['pageProps']['album']['id'])
     else:
         items = soup.find_all('a', {'class': 'image'})
         item_urls = [item['href'] for item in items]
@@ -40,7 +40,7 @@ def download(item_url, album_name=None):
         os.mkdir('downloads')
 
     if album_name is not None:
-        download_path = os.path.join('downloads',album_name)
+        download_path = os.path.join('downloads', album_name)
         if not os.path.isdir(download_path):
             os.mkdir(download_path)
     else:
@@ -63,10 +63,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(sys.argv[1:])
     parser.add_argument("-u", help="Url to fetch", type=str, required=True)
     parser.add_argument("-e", help="Extensions to download (comma separated)", type=str)
-    parser.add_argument("-s", help="Minimum file size to download (in bytes, only for Bunkr)", type=int, const=0, default=0, nargs='?')
+    parser.add_argument("-s", help="Minimum file size to download (in kilobytes, only for Bunkr)", type=int, const=0, default=0, nargs='?')
+    parser.add_argument("-i", help="Use album id instead of album name for the folder name (only for Bunkr)", action="store_true")
 
     args = parser.parse_args()
 
-    get_items_list(args.u, args.e, args.s)
+    get_items_list(args.u, args.e, args.s, args.i)
     
     
