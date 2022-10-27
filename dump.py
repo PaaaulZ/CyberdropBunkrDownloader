@@ -21,7 +21,7 @@ def get_items_list(url, extensions, min_file_size, use_album_id):
         json_data_element = soup.find("script", {"id": "__NEXT_DATA__"})
         json_data = json.loads(json_data_element.string)
         files = json_data['props']['pageProps']['album']['files']
-        item_urls = [f"{file['cdn']}/{file['name']}" for file in files if int(file['size']) > (min_file_size * 1000)]
+        item_urls = [f"{file['cdn'].replace('/cdn','/media-files')}/{file['name']}" for file in files if int(file['size']) > (min_file_size * 1000)]
         album_name = json_data['props']['pageProps']['album']['name'] if not use_album_id else str(json_data['props']['pageProps']['album']['id'])
     else:
         items = soup.find_all('a', {'class': 'image'})
@@ -32,9 +32,9 @@ def get_items_list(url, extensions, min_file_size, use_album_id):
         extension = get_url_data(item_url)['extension']
         if extension in extensions_list or len(extensions_list) == 0:
             print(f"[+] Downloading {item_url}")
-            download(item_url, album_name)
+            download(item_url, album_name, get_url_data(url)['hostname'] == 'bunkr.is')
 
-def download(item_url, album_name=None):
+def download(item_url, album_name=None, is_bunkr=False):
 
     if not os.path.isdir('downloads'):
         os.mkdir('downloads')
@@ -48,7 +48,7 @@ def download(item_url, album_name=None):
     
     file_name = get_url_data(item_url)['file_name']
     with open(os.path.join(download_path, file_name), 'wb') as f:
-        r = requests.get(item_url)
+        r = requests.get(item_url, headers={'Referer': 'https://stream.bunkr.is/'} if is_bunkr else {})
         f.write(r.content)
 
     return
@@ -69,5 +69,3 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     get_items_list(args.u, args.e, args.s, args.i)
-    
-    
