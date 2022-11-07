@@ -1,5 +1,5 @@
-# CyberdropDownloader
-Simple downloader for cyberdrop.me
+# CyberdropBunkrDownloader
+Simple downloader for cyberdrop.me and bunkr.is
 
 
 # Usage
@@ -30,4 +30,10 @@ Use album id for folder name instead of album name (optional, only for Bunkr):
 
 ```
 python3 dump.py -u [url] -e [extensions (comma separated)] ex: python3 dump.py -u [url] -i 
+```
+
+Choose a custom download path
+
+```
+python3 dump.py -u [url] -p [path to download folder] ex: python3 dump.py -u [url] -p "E:\download_folder" or python3 dump.py -u [url] -p "/home/test/download_folder"
 ```

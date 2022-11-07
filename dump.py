@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urlparse 
 
 
-def get_items_list(url, extensions, min_file_size, use_album_id):
+def get_items_list(url, extensions, min_file_size, use_album_id, custom_path=None):
 
     extensions_list = extensions.split(',') if extensions is not None else []
     
@@ -32,15 +32,17 @@ def get_items_list(url, extensions, min_file_size, use_album_id):
         extension = get_url_data(item_url)['extension']
         if extension in extensions_list or len(extensions_list) == 0:
             print(f"[+] Downloading {item_url}")
-            download(item_url, album_name, get_url_data(url)['hostname'] == 'bunkr.is')
+            download(item_url, custom_path, album_name, get_url_data(url)['hostname'] == 'bunkr.is')
 
-def download(item_url, album_name=None, is_bunkr=False):
+def download(item_url, custom_path, album_name=None, is_bunkr=False):
 
-    if not os.path.isdir('downloads'):
-        os.mkdir('downloads')
+    final_path = 'downloads' if custom_path is None else os.path.join(custom_path, 'downloads')
+
+    if not os.path.isdir(final_path):
+        os.makedirs(final_path)
 
     if album_name is not None:
-        download_path = os.path.join('downloads', album_name)
+        download_path = os.path.join(final_path, album_name)
         if not os.path.isdir(download_path):
             os.mkdir(download_path)
     else:
@@ -65,7 +67,8 @@ if __name__ == '__main__':
     parser.add_argument("-e", help="Extensions to download (comma separated)", type=str)
     parser.add_argument("-s", help="Minimum file size to download (in kilobytes, only for Bunkr)", type=int, const=0, default=0, nargs='?')
     parser.add_argument("-i", help="Use album id instead of album name for the folder name (only for Bunkr)", action="store_true")
+    parser.add_argument("-p", help="Path to custom downloads folder")
 
     args = parser.parse_args()
 
-    get_items_list(args.u, args.e, args.s, args.i)
+    get_items_list(args.u, args.e, args.s, args.i, args.p)
