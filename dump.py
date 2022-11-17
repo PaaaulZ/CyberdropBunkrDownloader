@@ -10,19 +10,24 @@ from urllib.parse import urlparse
 def get_items_list(url, extensions, min_file_size, use_album_id, custom_path=None):
 
     extensions_list = extensions.split(',') if extensions is not None else []
-    
+    hostname = get_url_data(url)['hostname']
+       
     r = requests.get(url)
     if r.status_code != 200:
         raise Exception(f"HTTP error {r.status_code}")
 
     soup = BeautifulSoup(r.content, 'html.parser')
-    if get_url_data(url)['hostname'] == 'bunkr.is':
+    if hostname in ['bunkr.is', 'stream.bunkr.is']:
         item_urls = []
+        album_or_file = 'file' if hostname == 'stream.bunkr.is' else 'album'
         json_data_element = soup.find("script", {"id": "__NEXT_DATA__"})
         json_data = json.loads(json_data_element.string)
-        files = json_data['props']['pageProps']['album']['files']
-        item_urls = [f"{file['cdn'].replace('/cdn','/media-files')}/{file['name']}" for file in files if int(file['size']) > (min_file_size * 1000)]
-        album_name = json_data['props']['pageProps']['album']['name'] if not use_album_id else str(json_data['props']['pageProps']['album']['id'])
+        files = json_data['props']['pageProps']['album']['files'] if album_or_file == 'album' else [json_data['props']['pageProps']['file']]
+        if album_or_file == 'file':
+            item_urls = [f"{file['mediafiles']}/{file['name']}" for file in files if int(file['size']) > (min_file_size * 1000)]
+        else:
+            item_urls = [f"{file['cdn'].replace('/cdn','/media-files')}/{file['name']}" for file in files if int(file['size']) > (min_file_size * 1000)]
+        album_name = json_data['props']['pageProps'][album_or_file]['name'] if not use_album_id else str(json_data['props']['pageProps'][album_or_file]['id'])
     else:
         items = soup.find_all('a', {'class': 'image'})
         item_urls = [item['href'] for item in items]
@@ -32,7 +37,7 @@ def get_items_list(url, extensions, min_file_size, use_album_id, custom_path=Non
         extension = get_url_data(item_url)['extension']
         if extension in extensions_list or len(extensions_list) == 0:
             print(f"[+] Downloading {item_url}")
-            download(item_url, custom_path, album_name, get_url_data(url)['hostname'] == 'bunkr.is')
+            download(item_url, custom_path, album_name, hostname == 'bunkr.is')
 
 def download(item_url, custom_path, album_name=None, is_bunkr=False):
 
