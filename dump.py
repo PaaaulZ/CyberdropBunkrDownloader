@@ -54,9 +54,10 @@ def download(item_url, custom_path, album_name=None, is_bunkr=False):
         download_path = 'downloads'
     
     file_name = get_url_data(item_url)['file_name']
-    with open(os.path.join(download_path, file_name), 'wb') as f:
-        r = requests.get(item_url, headers={'Referer': 'https://stream.bunkr.is/'} if is_bunkr else {})
-        f.write(r.content)
+    with requests.get(item_url, headers={'Referer': 'https://stream.bunkr.is/'} if is_bunkr else {}, stream=True) as r:
+        with open(os.path.join(download_path, file_name), 'wb') as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                f.write(chunk)
 
     return
 
