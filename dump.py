@@ -6,8 +6,6 @@ import traceback
 import os
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
-import yt_dlp as youtube_dl
-import mimetypes
 
 
 def get_items_list(url, extensions, min_file_size, use_album_id, custom_path=None):
@@ -72,17 +70,9 @@ def download(item_url, custom_path, album_name=None, is_bunkr=False):
     else:
         file_name = get_url_data(item_url)['file_name']
         with requests.get(item_url, headers={'Referer': 'https://stream.bunkr.is/'} if is_bunkr else {}, stream=True) as r:
-
-            # Use YT-DLP for videos since it can resume downloads
-            if 'video' in r.headers['Content-Type']:
-                dYdlOptions = dict()
-                dYdlOptions['outtmpl'] = rf'.\\{download_path}\\%(title).125s.%(ext)s'
-                with youtube_dl.YoutubeDL(dYdlOptions) as ydl:
-                    ydl.download([item_url])
-            else:
-                with open(os.path.join(download_path, file_name), 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        f.write(chunk)
+            with open(os.path.join(download_path, file_name), 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
 
         # Write item to history when download is done
         with open(sHistoryFile, 'a') as history:
