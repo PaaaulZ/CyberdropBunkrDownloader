@@ -2,16 +2,17 @@ import requests
 import json
 import argparse
 import sys
+import traceback
 import os
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse 
+from urllib.parse import urlparse
+import yt_dlp as youtube_dl
 
 
 def get_items_list(url, extensions, min_file_size, use_album_id, custom_path=None):
-
     extensions_list = extensions.split(',') if extensions is not None else []
     hostname = get_url_data(url)['hostname']
-       
+
     r = requests.get(url)
     if r.status_code != 200:
         raise Exception(f"HTTP error {r.status_code}")
@@ -33,14 +34,16 @@ def get_items_list(url, extensions, min_file_size, use_album_id, custom_path=Non
         item_urls = [item['href'] for item in items]
         album_name = soup.find('h1', {'id': 'title'}).text
 
+    album_name = album_name.strip()
+
     for item_url in item_urls:
         extension = get_url_data(item_url)['extension']
         if extension in extensions_list or len(extensions_list) == 0:
             print(f"[+] Downloading {item_url}")
             download(item_url, custom_path, album_name, hostname == 'bunkr.is')
 
-def download(item_url, custom_path, album_name=None, is_bunkr=False):
 
+def download(item_url, custom_path, album_name=None, is_bunkr=False):
     final_path = 'downloads' if custom_path is None else os.path.join(custom_path, 'downloads')
 
     if not os.path.isdir(final_path):
@@ -52,14 +55,32 @@ def download(item_url, custom_path, album_name=None, is_bunkr=False):
             os.mkdir(download_path)
     else:
         download_path = 'downloads'
-    
-    file_name = get_url_data(item_url)['file_name']
-    with requests.get(item_url, headers={'Referer': 'https://stream.bunkr.is/'} if is_bunkr else {}, stream=True) as r:
-        with open(os.path.join(download_path, file_name), 'wb') as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
+
+    sHistoryFile = rf".\\{download_path}\\history.txt"
+    try:
+        file = open(sHistoryFile)
+        lines = file.readlines()
+        lHistory = [line.rstrip() for line in lines]
+    except:
+        print("History file created!")
+        with open(sHistoryFile, 'w+') as file:
+            lHistory = []
+
+    if item_url in lHistory:
+        print(f"item_url = {item_url} already in history - skipping!")
+    else:
+        file_name = get_url_data(item_url)['file_name']
+        with requests.get(item_url, headers={'Referer': 'https://stream.bunkr.is/'} if is_bunkr else {}, stream=True) as r:
+            with open(os.path.join(download_path, file_name), 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+
+        # Write item to history when download is done
+        with open(sHistoryFile, 'a') as history:
+            history.write(item_url + "\r\n")
 
     return
+
 
 def get_url_data(url):
     parsed_url = urlparse(url)
