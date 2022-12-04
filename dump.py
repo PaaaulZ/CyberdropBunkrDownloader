@@ -24,9 +24,9 @@ def get_items_list(url, extensions, min_file_size, use_album_id, custom_path=Non
         json_data = json.loads(json_data_element.string)
         files = json_data['props']['pageProps']['album']['files'] if album_or_file == 'album' else [json_data['props']['pageProps']['file']]
         if album_or_file == 'file':
-            item_urls = [f"{file['mediafiles']}/{file['name']}" for file in files if int(file['size']) > (min_file_size * 1000)]
+            item_urls = [f"{file['mediafiles']}/{file['name']}" for file in files if int(float(file['size'])) > (min_file_size * 1000)]
         else:
-            item_urls = [f"{file['cdn'].replace('/cdn','/media-files')}/{file['name']}" for file in files if int(file['size']) > (min_file_size * 1000)]
+            item_urls = [f"{file['cdn'].replace('/cdn','/media-files')}/{file['name']}" for file in files if int(float(file['size'])) > (min_file_size * 1000)]
         album_name = json_data['props']['pageProps'][album_or_file]['name'] if not use_album_id else str(json_data['props']['pageProps'][album_or_file]['id'])
     else:
         items = soup.find_all('a', {'class': 'image'})
