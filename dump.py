@@ -19,7 +19,7 @@ def get_items_list(url, extensions, min_file_size, use_album_id, only_export, cu
     soup = BeautifulSoup(r.content, 'html.parser')
     if hostname in ['bunkr.is', 'stream.bunkr.is', 'bunkr.ru']:
         item_urls = []
-        album_or_file = 'file' if hostname == 'stream.bunkr.is' else 'album'
+        album_or_file = 'file' if hostname in ['stream.bunkr.is', 'stream.bunkr.ru'] else 'album'
         json_data_element = soup.find("script", {"id": "__NEXT_DATA__"})
         json_data = json.loads(json_data_element.string)
         files = json_data['props']['pageProps']['album']['files'] if album_or_file == 'album' else [json_data['props']['pageProps']['file']]
@@ -48,7 +48,7 @@ def get_items_list(url, extensions, min_file_size, use_album_id, only_export, cu
 def download(item_url, download_path, is_bunkr=False):
 
     file_name = get_url_data(item_url)['file_name']
-    with requests.get(item_url, headers={'Referer': 'https://stream.bunkr.is/'} if is_bunkr else {}, stream=True) as r:
+    with requests.get(item_url, headers={'Referer': 'https://stream.bunkr.ru/'} if is_bunkr else {}, stream=True) as r:
         with open(os.path.join(download_path, file_name), 'wb') as f:
             for chunk in r.iter_content(chunk_size=8192):
                 f.write(chunk)
