@@ -40,7 +40,7 @@ def get_items_list(url, extensions, min_file_size, use_album_id, only_export, cu
             extension = get_url_data(item_url)['extension']
             if ((extension in extensions_list or len(extensions_list) == 0) and (item_url not in already_downloaded_url)):
                 print(f"[+] Downloading {item_url}")
-                download(item_url, download_path, hostname == 'bunkr.is')
+                download(item_url, download_path, hostname in ['bunkr.ru', 'bunkr.is'])
     else:
         export_list(item_urls, download_path)
         return
@@ -48,7 +48,7 @@ def get_items_list(url, extensions, min_file_size, use_album_id, only_export, cu
 def download(item_url, download_path, is_bunkr=False):
 
     file_name = get_url_data(item_url)['file_name']
-    with requests.get(item_url, headers={'Referer': 'https://stream.bunkr.ru/'} if is_bunkr else {}, stream=True) as r:
+    with requests.get(item_url, headers={'Referer': 'https://stream.bunkr.ru/', 'User-Agent': 'Mozila/5.0'} if is_bunkr else {}, stream=True) as r:
         with open(os.path.join(download_path, file_name), 'wb') as f:
             for chunk in r.iter_content(chunk_size=8192):
                 f.write(chunk)
