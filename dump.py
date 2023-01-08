@@ -3,6 +3,7 @@ import json
 import argparse
 import sys
 import os
+import re
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse 
 def get_items_list(url, extensions, min_file_size, use_album_id, only_export, custom_path=None, ignore_error=False):
@@ -22,21 +23,18 @@ def get_items_list(url, extensions, min_file_size, use_album_id, only_export, cu
         json_data_element = soup.find("script", {"id": "__NEXT_DATA__"})
         json_data = json.loads(json_data_element.string)
         if len(json_data['props']['pageProps']) == 0:
-            print("[-] Failed to load the album/file, maybe try visiting the album in a browser?")
-            # Sometimes when loading album, bunkr will return a page 
-            # saying "Loading...", opening the album/file
-            # seems to fix that 
-            return
+            raise Exception("[-] Failed to load the album/file, maybe try visiting the album in a browser?")
+
         files = json_data['props']['pageProps']['album']['files'] if album_or_file == 'album' else [json_data['props']['pageProps']['file']]
         if album_or_file == 'file':
             item_urls = [f"{file['mediafiles']}/{file['name']}" for file in files if int(file['size']) > (min_file_size * 1000)]
         else:
             item_urls = [f"{file['cdn'].replace('/cdn','/media-files')}/{file['name']}" for file in files if int(file['size']) > (min_file_size * 1000)]
-        album_name = json_data['props']['pageProps'][album_or_file]['name'] if not use_album_id else str(json_data['props']['pageProps'][album_or_file]['id'])
+        album_name = remove_illegal_chars(json_data['props']['pageProps'][album_or_file]['name']) if not use_album_id else str(json_data['props']['pageProps'][album_or_file]['id'])
     else:
         items = soup.find_all('a', {'class': 'image'})
         item_urls = [item['href'] for item in items]
-        album_name = soup.find('h1', {'id': 'title'}).text
+        album_name = remove_illegal_chars(soup.find('h1', {'id': 'title'}).text)
 
     download_path = get_and_prepare_download_path(custom_path, album_name)
     already_downloaded_url = get_already_downloaded_url(download_path)
@@ -81,7 +79,7 @@ def get_and_prepare_download_path(custom_path, album_name):
 
     already_downloaded_path = os.path.join(final_path, 'already_downloaded.txt')
     if not os.path.isfile(already_downloaded_path):
-        with open(already_downloaded_path, 'x'):
+        with open(already_downloaded_path, 'x', encoding='utf-8'):
             pass
 
     return final_path
@@ -90,7 +88,7 @@ def export_list(item_urls, download_path):
 
     list_path = os.path.join(download_path, 'url_list.txt')
 
-    with open(list_path, 'w') as f:
+    with open(list_path, 'w', encoding='utf-8') as f:
         f.write('\n'.join(item_urls))
 
     print(f"[+] File list exported in {list_path}")
@@ -104,13 +102,13 @@ def get_already_downloaded_url(download_path):
     if not os.path.isfile(file_path):
         return []
     
-    with open(file_path, 'r') as f:
+    with open(file_path, 'r', encoding='utf-8') as f:
         return f.read().splitlines()
 
 def mark_as_downloaded(item_url, download_path):
 
     file_path = os.path.join(download_path, 'already_downloaded.txt')
-    with open(file_path, 'a') as f:
+    with open(file_path, 'a', encoding='utf-8') as f:
         f.write(f"{item_url}\n")
 
     return
@@ -136,6 +134,9 @@ def check_bunkr_status(ignore=False):
             else:
                 print("\n")
     return    
+
+def remove_illegal_chars(string):
+    return re.sub(r"[<>:/\\|?*\"]|[\0-\31]", "-", string)
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(sys.argv[1:])
@@ -148,4 +149,5 @@ if __name__ == '__main__':
     parser.add_argument("-ignore", help="Ignores if servers were down",action="store_true")
 
     args = parser.parse_args()
+    sys.stdout.reconfigure(encoding='utf-8')
     get_items_list(args.u, args.e, args.s, args.i, args.w, args.p, args.ignore)
