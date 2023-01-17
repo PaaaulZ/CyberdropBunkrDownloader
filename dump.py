@@ -6,7 +6,7 @@ import os
 import re
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse 
-def get_items_list(url, extensions, min_file_size, use_album_id, only_export, custom_path=None, ignore_error=False):
+def get_items_list(url, extensions, min_file_size, use_album_id, only_export, custom_path=None, check_file_size=None, check_server_status=False):
 
     extensions_list = extensions.split(',') if extensions is not None else []
     hostname = get_url_data(url)['hostname']
@@ -17,8 +17,8 @@ def get_items_list(url, extensions, min_file_size, use_album_id, only_export, cu
 
     soup = BeautifulSoup(r.content, 'html.parser')
     if hostname in ['bunkr.is', 'stream.bunkr.is', 'bunkr.ru', 'stream.bunkr.ru']:
-        check_bunkr_status(ignore_error);
-        item_urls = []
+        broken_servers = check_bunkr_status() if check_server_status else []
+        items = []
         album_or_file = 'file' if hostname in ['stream.bunkr.is', 'stream.bunkr.ru'] else 'album'
         json_data_element = soup.find("script", {"id": "__NEXT_DATA__"})
         json_data = json.loads(json_data_element.string)
@@ -27,38 +27,50 @@ def get_items_list(url, extensions, min_file_size, use_album_id, only_export, cu
 
         files = json_data['props']['pageProps']['album']['files'] if album_or_file == 'album' else [json_data['props']['pageProps']['file']]
         if album_or_file == 'file':
-            item_urls = [f"{file['mediafiles']}/{file['name']}" for file in files if int(file['size']) > (min_file_size * 1000)]
+            items = [{'url': f"{file['mediafiles']}/{file['name']}", 'size': file['size'] if check_file_size else -1} for file in files if int(file['size']) > (min_file_size * 1000)]
         else:
-            item_urls = [f"{file['cdn'].replace('/cdn','/media-files')}/{file['name']}" for file in files if int(file['size']) > (min_file_size * 1000)]
+            items = [{'url': f"{file['cdn'].replace('/cdn','/media-files')}/{file['name']}", 'size': file['size'] if check_file_size else -1} for file in files if int(file['size']) > (min_file_size * 1000)]
         album_name = remove_illegal_chars(json_data['props']['pageProps'][album_or_file]['name']) if not use_album_id else str(json_data['props']['pageProps'][album_or_file]['id'])
     else:
         items = soup.find_all('a', {'class': 'image'})
-        item_urls = [item['href'] for item in items]
+        items = {'url': [item['href'] for item in items], 'size': -1}
         album_name = remove_illegal_chars(soup.find('h1', {'id': 'title'}).text)
 
     download_path = get_and_prepare_download_path(custom_path, album_name)
     already_downloaded_url = get_already_downloaded_url(download_path)
     if not only_export:
-        for item_url in item_urls:
-            extension = get_url_data(item_url)['extension']
-            if ((extension in extensions_list or len(extensions_list) == 0) and (item_url not in already_downloaded_url)):
-                print(f"[+] Downloading {item_url}")
-                
-                download(item_url, download_path, hostname in ['bunkr.ru', 'bunkr.is'])
+        for item in items:
+            extension = get_url_data(item['url'])['extension']
+            if ((extension in extensions_list or len(extensions_list) == 0) and (item not in already_downloaded_url)):
+                print(f"[+] Downloading {item['url']}")
+                download(item['url'], download_path, broken_servers, item['size'], hostname in ['bunkr.ru', 'bunkr.is'])
     else:
-        export_list(item_urls, download_path)
+        export_list(items, download_path)
         return
 
-def download(item_url, download_path, is_bunkr=False):
+def download(item_url, download_path, broken_servers, file_size, is_bunkr=False):
 
     file_name = get_url_data(item_url)['file_name']
     with requests.get(item_url, headers={'Referer': 'https://stream.bunkr.ru/', 'User-Agent': 'Mozila/5.0'} if is_bunkr else {}, stream=True) as r:
         if r.url in ["https://static.bunkr.ru/v/maintenance.mp4", "https://static.bunkr.is/v/maintenance.mp4"]:
-            print(f"[-] Error Downloading \"{file_name}\", server is under maintenance!")
+            print(f"\t[-] Error Downloading \"{file_name}\", server is under maintenance\n")
             return
-        with open(os.path.join(download_path, file_name), 'wb') as f:
+
+        hostname = get_url_data(r.url)['hostname']
+        if hostname in broken_servers and is_bunkr:
+            print(f"\t[-] Server is under maintenance, {file_name} could be broken\n")
+
+        final_path = os.path.join(download_path, file_name)
+        with open(final_path, 'wb') as f:
             for chunk in r.iter_content(chunk_size=8192):
                 f.write(chunk)
+
+        file_size = int(file_size)
+        if is_bunkr and file_size > -1:
+            downloaded_file_size = os.stat(final_path).st_size
+            if downloaded_file_size != file_size:
+                print(f"\t[-] {file_name} size check failed, file could be broken\n")
+            return
 
     mark_as_downloaded(item_url, download_path)
 
@@ -113,27 +125,26 @@ def mark_as_downloaded(item_url, download_path):
 
     return
 
-def check_bunkr_status(ignore=False):
-    print("Checking bunkr statuses...")
+def check_bunkr_status():
+   
+    broken_servers = []
+
     r = requests.get("https://status.bunkr.ru/")
     if r.status_code != 200:
         raise Exception(f"HTTP error {r.status_code}")
+
     soup = BeautifulSoup(r.content, 'html.parser')
     els = soup.find_all("div", {"class": "column"})
     for el in els:
         childrenList = list(el.children)
         server = childrenList[1].text
         status = childrenList[3].text
-        print(f"{server}: {status}")
         if status not in ["Operational", "Degraded performance"]:
-            print("\n")
-            print(f"{server} Seems to not be operational! videos that are downloaded from that server will be broken", end="", flush=True)
-            if ignore == False:
-                print(", if you want to ignore this error run the script again with the argument \"-ignore\"")
-                exit(1)
-            else:
-                print("\n")
-    return    
+            rr = re.search(r'server #[0-9]+ \((.*?)\)', server)
+            server = rr.group(1).replace('cdn', 'media-files')
+            broken_servers.append(server)
+
+    return broken_servers  
 
 def remove_illegal_chars(string):
     return re.sub(r"[<>:/\\|?*\"]|[\0-\31]", "-", string)
@@ -146,8 +157,9 @@ if __name__ == '__main__':
     parser.add_argument("-i", help="Use album id instead of album name for the folder name (only for Bunkr)", action="store_true")
     parser.add_argument("-p", help="Path to custom downloads folder")
     parser.add_argument("-w", help="Export url list (ex: for wget)", action="store_true")
-    parser.add_argument("-ignore", help="Ignores if servers were down",action="store_true")
+    parser.add_argument("-cfs", help="Check file size after download",action="store_true")
+    parser.add_argument("-css", help="Check server status before downloading",action="store_true")
 
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding='utf-8')
-    get_items_list(args.u, args.e, args.s, args.i, args.w, args.p, args.ignore)
+    get_items_list(args.u, args.e, args.s, args.i, args.w, args.p, args.cfs, args.css)
