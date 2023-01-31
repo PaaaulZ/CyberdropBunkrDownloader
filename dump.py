@@ -41,7 +41,7 @@ def get_items_list(url, extensions, min_file_size, use_album_id, only_export, cu
     if not only_export:
         for item in items:
             extension = get_url_data(item['url'])['extension']
-            if ((extension in extensions_list or len(extensions_list) == 0) and (item not in already_downloaded_url)):
+            if ((extension in extensions_list or len(extensions_list) == 0) and (item['url'] not in already_downloaded_url)):
                 print(f"[+] Downloading {item['url']}")
                 download(item['url'], download_path, broken_servers, item['size'], hostname in ['bunkr.ru', 'bunkr.is'])
     else:
