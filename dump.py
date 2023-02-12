@@ -6,7 +6,7 @@ import os
 import re
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse 
-def get_items_list(url, extensions, min_file_size, use_album_id, only_export, custom_path=None, check_file_size=None, check_server_status=False):
+def get_items_list(url, extensions, only_export, custom_path=None, check_server_status=False):
 
     extensions_list = extensions.split(',') if extensions is not None else []
     hostname = get_url_data(url)['hostname']
@@ -16,21 +16,17 @@ def get_items_list(url, extensions, min_file_size, use_album_id, only_export, cu
         raise Exception(f"HTTP error {r.status_code}")
 
     soup = BeautifulSoup(r.content, 'html.parser')
-    if hostname in ['bunkr.is', 'stream.bunkr.is', 'bunkr.ru', 'stream.bunkr.ru']:
+    if hostname in ['bunkr.is', 'stream.bunkr.is', 'bunkr.ru', 'stream.bunkr.ru', 'bunkr.su', 'stream.bunkr.su']:
         broken_servers = check_bunkr_status() if check_server_status else []
         items = []
-        album_or_file = 'file' if hostname in ['stream.bunkr.is', 'stream.bunkr.ru'] else 'album'
-        json_data_element = soup.find("script", {"id": "__NEXT_DATA__"})
-        json_data = json.loads(json_data_element.string)
-        if len(json_data['props']['pageProps']) == 0:
-            raise Exception("[-] Failed to load the album/file, maybe try visiting the album in a browser?")
-
-        files = json_data['props']['pageProps']['album']['files'] if album_or_file == 'album' else [json_data['props']['pageProps']['file']]
-        if album_or_file == 'file':
-            items = [{'url': f"{file['mediafiles']}/{file['name']}", 'size': file['size'] if check_file_size else -1} for file in files if int(file['size']) > (min_file_size * 1000)]
-        else:
-            items = [{'url': f"{file['cdn'].replace('/cdn','/media-files')}/{file['name']}", 'size': file['size'] if check_file_size else -1} for file in files if int(file['size']) > (min_file_size * 1000)]
-        album_name = remove_illegal_chars(json_data['props']['pageProps'][album_or_file]['name']) if not use_album_id else str(json_data['props']['pageProps'][album_or_file]['id'])
+        album_or_file = 'file' if hostname in ['stream.bunkr.is', 'stream.bunkr.ru', 'stream.bunkr.su'] else 'album'
+        if album_or_file == 'album':
+            soup = BeautifulSoup(r.content, 'html.parser')
+            boxes = soup.find_all('a', {'class': 'grid-images_box-link'})
+            for box in boxes:
+                items.append({'url': box['href'].replace('/cdn','/media-files'), 'size': -1})
+        
+        album_name = remove_illegal_chars(soup.find('h1', {'class': 'text-[24px]'}).text)
     else:
         items = soup.find_all('a', {'class': 'image'})
         items = {'url': [item['href'] for item in items], 'size': -1}
@@ -43,7 +39,7 @@ def get_items_list(url, extensions, min_file_size, use_album_id, only_export, cu
             extension = get_url_data(item['url'])['extension']
             if ((extension in extensions_list or len(extensions_list) == 0) and (item['url'] not in already_downloaded_url)):
                 print(f"[+] Downloading {item['url']}")
-                download(item['url'], download_path, broken_servers, item['size'], hostname in ['bunkr.ru', 'bunkr.is'])
+                download(item['url'], download_path, broken_servers, item['size'], hostname in ['bunkr.ru', 'bunkr.is', 'bunkr.su'])
     else:
         export_list(items, download_path)
         return
@@ -51,8 +47,8 @@ def get_items_list(url, extensions, min_file_size, use_album_id, only_export, cu
 def download(item_url, download_path, broken_servers, file_size, is_bunkr=False):
 
     file_name = get_url_data(item_url)['file_name']
-    with requests.get(item_url, headers={'Referer': 'https://stream.bunkr.ru/', 'User-Agent': 'Mozila/5.0'} if is_bunkr else {}, stream=True) as r:
-        if r.url in ["https://static.bunkr.ru/v/maintenance.mp4", "https://static.bunkr.is/v/maintenance.mp4"]:
+    with requests.get(item_url, headers={'Referer': 'https://stream.bunkr.su/', 'User-Agent': 'Mozila/5.0'} if is_bunkr else {}, stream=True) as r:
+        if r.url in ["https://static.bunkr.su/v/maintenance.mp4", "https://static.bunkr.is/v/maintenance.mp4", "https://static.bunkr.su/v/maintenance.mp4"]:
             print(f"\t[-] Error Downloading \"{file_name}\", server is under maintenance\n")
             return
 
@@ -129,7 +125,7 @@ def check_bunkr_status():
    
     broken_servers = []
 
-    r = requests.get("https://status.bunkr.ru/")
+    r = requests.get("https://status.bunkr.su/")
     if r.status_code != 200:
         raise Exception(f"HTTP error {r.status_code}")
 
@@ -153,13 +149,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(sys.argv[1:])
     parser.add_argument("-u", help="Url to fetch", type=str, required=True)
     parser.add_argument("-e", help="Extensions to download (comma separated)", type=str)
-    parser.add_argument("-s", help="Minimum file size to download (in kilobytes, only for Bunkr)", type=int, const=0, default=0, nargs='?')
-    parser.add_argument("-i", help="Use album id instead of album name for the folder name (only for Bunkr)", action="store_true")
     parser.add_argument("-p", help="Path to custom downloads folder")
     parser.add_argument("-w", help="Export url list (ex: for wget)", action="store_true")
-    parser.add_argument("-cfs", help="Check file size after download",action="store_true")
     parser.add_argument("-css", help="Check server status before downloading",action="store_true")
 
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding='utf-8')
-    get_items_list(args.u, args.e, args.s, args.i, args.w, args.p, args.cfs, args.css)
+    get_items_list(args.u, args.e, args.w, args.p, args.css)
