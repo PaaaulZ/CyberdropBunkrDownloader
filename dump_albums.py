@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 def download():
 
     print("[?] Requesting album list")
-    r = requests.get('https://bunkr.ru/albums', headers={'User-Agent': 'Mozilla/5.0'})
+    r = requests.get('https://bunkr.su/albums', headers={'User-Agent': 'Mozilla/5.0'})
     if r.status_code != 200:
         raise Exception(f"\t[-] HTTP Error {r.status_code}")
 
@@ -22,7 +22,7 @@ def download():
     f = open('albums.csv', 'w')
     f.write("Album Name;URL\n")
     for album in albums:
-        f.write(f"{album['name'].replace(';',' ')};https://bunkr.ru/a/{album['identifier']}\n")
+        f.write(f"{album['name'].replace(';',' ')};https://bunkr.su/a/{album['identifier']}\n")
     f.close()
 
     print("\t[+] Done")
