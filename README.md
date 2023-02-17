@@ -17,10 +17,7 @@ optional arguments:
   -h, --help  show this help message and exit
   -u U        Url to fetch
   -e E        Extensions to download (comma separated)
-  -s [S]      Minimum file size to download (in kilobytes, only for Bunkr)
-  -i          Use album id instead of album name for the folder name (only for Bunkr)
   -p P        Path to custom downloads folder
   -w          Export url list (ex: for wget)
-  -cfs        Check file size after download
   -css        Check server status before downloading
   ```
