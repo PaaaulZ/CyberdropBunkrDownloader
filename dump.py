@@ -125,7 +125,7 @@ def check_bunkr_status():
    
     broken_servers = []
 
-    r = requests.get("https://status.bunkr.su/")
+    r = requests.get("https://status.bunkr.ru/")
     if r.status_code != 200:
         raise Exception(f"HTTP error {r.status_code}")
 
