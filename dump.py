@@ -16,8 +16,8 @@ def get_items_list(url, extensions, only_export, custom_path=None, check_server_
         raise Exception(f"HTTP error {r.status_code}")
 
     soup = BeautifulSoup(r.content, 'html.parser')
+    broken_servers = check_bunkr_status() if check_server_status else []
     if hostname in ['bunkr.is', 'stream.bunkr.is', 'bunkr.ru', 'stream.bunkr.ru', 'bunkr.su', 'stream.bunkr.su']:
-        broken_servers = check_bunkr_status() if check_server_status else []
         items = []
         album_or_file = 'file' if hostname in ['stream.bunkr.is', 'stream.bunkr.ru', 'stream.bunkr.su'] else 'album'
         if album_or_file == 'album':
@@ -28,8 +28,10 @@ def get_items_list(url, extensions, only_export, custom_path=None, check_server_
         
         album_name = remove_illegal_chars(soup.find('h1', {'class': 'text-[24px]'}).text)
     else:
-        items = soup.find_all('a', {'class': 'image'})
-        items = {'url': [item['href'] for item in items], 'size': -1}
+        items = []
+        items_dom = soup.find_all('a', {'class': 'image'})
+        for item_dom in items_dom:
+            items.append({'url': item_dom['href'], 'size': -1})
         album_name = remove_illegal_chars(soup.find('h1', {'id': 'title'}).text)
 
     download_path = get_and_prepare_download_path(custom_path, album_name)
