@@ -1,4 +1,3 @@
 requests
 bs4
 argparse
-re
