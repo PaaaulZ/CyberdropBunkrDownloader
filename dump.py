@@ -17,9 +17,9 @@ def get_items_list(url, extensions, only_export, custom_path=None, check_server_
 
     soup = BeautifulSoup(r.content, 'html.parser')
     broken_servers = check_bunkr_status() if check_server_status else []
-    if hostname in ['bunkr.is', 'stream.bunkr.is', 'bunkr.ru', 'stream.bunkr.ru', 'bunkr.su', 'stream.bunkr.su']:
+    if hostname in ['bunkr.is', 'stream.bunkr.is', 'bunkr.ru', 'stream.bunkr.ru', 'bunkr.su', 'stream.bunkr.su', 'bunkr.la', 'stream.bunkr.la']:
         items = []
-        album_or_file = 'file' if hostname in ['stream.bunkr.is', 'stream.bunkr.ru', 'stream.bunkr.su'] else 'album'
+        album_or_file = 'file' if hostname in ['stream.bunkr.is', 'stream.bunkr.ru', 'stream.bunkr.su', 'stream.bunkr.la'] else 'album'
         if album_or_file == 'album':
             soup = BeautifulSoup(r.content, 'html.parser')
             boxes = soup.find_all('a', {'class': 'grid-images_box-link'})
@@ -41,7 +41,7 @@ def get_items_list(url, extensions, only_export, custom_path=None, check_server_
             extension = get_url_data(item['url'])['extension']
             if ((extension in extensions_list or len(extensions_list) == 0) and (item['url'] not in already_downloaded_url)):
                 print(f"[+] Downloading {item['url']}")
-                download(item['url'], download_path, broken_servers, item['size'], hostname in ['bunkr.ru', 'bunkr.is', 'bunkr.su'])
+                download(item['url'], download_path, broken_servers, item['size'], hostname in ['bunkr.ru', 'bunkr.is', 'bunkr.su', 'bunkr.la'])
     else:
         export_list(items, download_path)
         return
@@ -50,7 +50,7 @@ def download(item_url, download_path, broken_servers, file_size, is_bunkr=False)
 
     file_name = get_url_data(item_url)['file_name']
     with requests.get(item_url, headers={'Referer': 'https://stream.bunkr.su/', 'User-Agent': 'Mozila/5.0'} if is_bunkr else {}, stream=True) as r:
-        if r.url in ["https://static.bunkr.su/v/maintenance.mp4", "https://static.bunkr.is/v/maintenance.mp4", "https://static.bunkr.su/v/maintenance.mp4"]:
+        if r.url in ['https://static.bunkr.ru/v/maintenance.mp4','https://static.bunkr.is/v/maintenance.mp4', 'https://static.bunkr.su/v/maintenance.mp4', 'https://static.bunkr.la/v/maintenance.mp4']:
             print(f"\t[-] Error Downloading \"{file_name}\", server is under maintenance\n")
             return
 
