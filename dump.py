@@ -6,17 +6,17 @@ import os
 import re
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse 
-def get_items_list(url, extensions, only_export, custom_path=None, check_server_status=False):
+
+def get_items_list(url, extensions, only_export, custom_path=None):
 
     extensions_list = extensions.split(',') if extensions is not None else []
     hostname = get_url_data(url)['hostname']
        
     r = requests.get(url)
     if r.status_code != 200:
-        raise Exception(f"HTTP error {r.status_code}")
+        raise Exception(f"[-] HTTP error {r.status_code}")
 
     soup = BeautifulSoup(r.content, 'html.parser')
-    broken_servers = check_bunkr_status() if check_server_status else []
     if hostname in ['bunkr.is', 'stream.bunkr.is', 'bunkr.ru', 'stream.bunkr.ru', 'bunkr.su', 'stream.bunkr.su', 'bunkr.la', 'stream.bunkr.la']:
         items = []
         album_or_file = 'file' if hostname in ['stream.bunkr.is', 'stream.bunkr.ru', 'stream.bunkr.su', 'stream.bunkr.la'] else 'album'
@@ -26,7 +26,8 @@ def get_items_list(url, extensions, only_export, custom_path=None, check_server_
             for box in boxes:
                 items.append({'url': box['href'].replace('/cdn','/media-files'), 'size': -1})
         
-        album_name = remove_illegal_chars(soup.find('h1', {'class': 'text-[24px]'}).text)
+        album_name = soup.find('h1', {'class': 'text-[24px]'}).text
+        album_name = remove_illegal_chars(album_name[:album_name.index('\n')] if album_name.index('\n') > 0 else album_name)
     else:
         items = []
         items_dom = soup.find_all('a', {'class': 'image'})
@@ -36,27 +37,44 @@ def get_items_list(url, extensions, only_export, custom_path=None, check_server_
 
     download_path = get_and_prepare_download_path(custom_path, album_name)
     already_downloaded_url = get_already_downloaded_url(download_path)
-    if not only_export:
-        for item in items:
-            extension = get_url_data(item['url'])['extension']
-            if ((extension in extensions_list or len(extensions_list) == 0) and (item['url'] not in already_downloaded_url)):
+    for item in items:
+        if 'https' not in item['url']:
+            item = get_real_download_url(item['url'])
+            if item is None:
+                print(f"\t[-] Unable to find a download link for {item}")
+                continue
+        extension = get_url_data(item['url'])['extension']
+        if ((extension in extensions_list or len(extensions_list) == 0) and (item['url'] not in already_downloaded_url)):
+            if only_export:
+                write_url_to_list(item['url'], download_path)
+            else:
                 print(f"[+] Downloading {item['url']}")
-                download(item['url'], download_path, broken_servers, item['size'], hostname in ['bunkr.ru', 'bunkr.is', 'bunkr.su', 'bunkr.la'])
-    else:
-        export_list(items, download_path)
-        return
+                download(item['url'], download_path, item['size'], hostname in ['bunkr.ru', 'bunkr.is', 'bunkr.su', 'bunkr.la'])
+    
+    print(f"\t[+] File list exported in {os.path.join(download_path,'url_list.txt')}" if only_export else f"\t[+] Download completed")
+    return
+    
+def get_real_download_url(url):
 
-def download(item_url, download_path, broken_servers, file_size, is_bunkr=False):
+    r = requests.get(f"https://bunkr.la{url}")
+    if r.status_code != 200:
+        return f"\t[-] HTTP error {r.status_code} getting real url for {url}"
+    
+    soup = BeautifulSoup(r.content, 'html.parser')
+    links = soup.find_all('a', {'class': 'text-primary'})
+    for link in links:
+        if 'media-files' in link['href']:
+            return {'url': link['href'], 'size': -1}
+    
+    return None
+
+def download(item_url, download_path, file_size, is_bunkr=False):
 
     file_name = get_url_data(item_url)['file_name']
     with requests.get(item_url, headers={'Referer': 'https://stream.bunkr.su/', 'User-Agent': 'Mozila/5.0'} if is_bunkr else {}, stream=True) as r:
         if r.url in ['https://static.bunkr.ru/v/maintenance.mp4','https://static.bunkr.is/v/maintenance.mp4', 'https://static.bunkr.su/v/maintenance.mp4', 'https://static.bunkr.la/v/maintenance.mp4']:
             print(f"\t[-] Error Downloading \"{file_name}\", server is under maintenance\n")
             return
-
-        hostname = get_url_data(r.url)['hostname']
-        if hostname in broken_servers and is_bunkr:
-            print(f"\t[-] Server is under maintenance, {file_name} could be broken\n")
 
         final_path = os.path.join(download_path, file_name)
         with open(final_path, 'wb') as f:
@@ -94,14 +112,12 @@ def get_and_prepare_download_path(custom_path, album_name):
 
     return final_path
 
-def export_list(item_urls, download_path):
+def write_url_to_list(item_url, download_path):
 
     list_path = os.path.join(download_path, 'url_list.txt')
 
-    with open(list_path, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(item_urls))
-
-    print(f"[+] File list exported in {list_path}")
+    with open(list_path, 'a', encoding='utf-8') as f:
+        f.write(f"{item_url}\n")
 
     return
 
@@ -123,27 +139,6 @@ def mark_as_downloaded(item_url, download_path):
 
     return
 
-def check_bunkr_status():
-   
-    broken_servers = []
-
-    r = requests.get("https://status.bunkr.ru/")
-    if r.status_code != 200:
-        raise Exception(f"HTTP error {r.status_code}")
-
-    soup = BeautifulSoup(r.content, 'html.parser')
-    els = soup.find_all("div", {"class": "column"})
-    for el in els:
-        childrenList = list(el.children)
-        server = childrenList[1].text
-        status = childrenList[3].text
-        if status not in ["Operational", "Degraded performance"]:
-            rr = re.search(r'server #[0-9]+ \((.*?)\)', server)
-            server = rr.group(1).replace('cdn', 'media-files')
-            broken_servers.append(server)
-
-    return broken_servers  
-
 def remove_illegal_chars(string):
     return re.sub(r"[<>:/\\|?*\"]|[\0-\31]", "-", string)
     
@@ -153,8 +148,7 @@ if __name__ == '__main__':
     parser.add_argument("-e", help="Extensions to download (comma separated)", type=str)
     parser.add_argument("-p", help="Path to custom downloads folder")
     parser.add_argument("-w", help="Export url list (ex: for wget)", action="store_true")
-    parser.add_argument("-css", help="Check server status before downloading",action="store_true")
 
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding='utf-8')
-    get_items_list(args.u, args.e, args.w, args.p, args.css)
+    get_items_list(args.u, args.e, args.w, args.p)
