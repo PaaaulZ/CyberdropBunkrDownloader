@@ -6,6 +6,7 @@ import os
 import re
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse 
+import requests
 
 def get_items_list(url, extensions, only_export, custom_path=None):
 
@@ -17,7 +18,7 @@ def get_items_list(url, extensions, only_export, custom_path=None):
         raise Exception(f"[-] HTTP error {r.status_code}")
 
     soup = BeautifulSoup(r.content, 'html.parser')
-    if hostname in ['bunkr.is', 'stream.bunkr.is', 'bunkr.ru', 'stream.bunkr.ru', 'bunkr.su', 'stream.bunkr.su', 'bunkr.la', 'stream.bunkr.la']:
+    if hostname in ['bunkr.is', 'stream.bunkr.is', 'bunkr.ru', 'stream.bunkr.ru', 'bunkr.su', 'stream.bunkr.su', 'bunkr.la', 'stream.bunkr.la', 'app.bunkr.la']:
         items = []
         album_or_file = 'file' if hostname in ['stream.bunkr.is', 'stream.bunkr.ru', 'stream.bunkr.su', 'stream.bunkr.la'] else 'album'
         if album_or_file == 'album':
@@ -69,28 +70,38 @@ def get_real_download_url(url):
     return None
 
 def download(item_url, download_path, file_size, is_bunkr=False):
+    session = create_session()
 
     file_name = get_url_data(item_url)['file_name']
-    with requests.get(item_url, headers={'Referer': 'https://stream.bunkr.su/', 'User-Agent': 'Mozila/5.0'} if is_bunkr else {}, stream=True) as r:
-        if r.url in ['https://static.bunkr.ru/v/maintenance.mp4','https://static.bunkr.is/v/maintenance.mp4', 'https://static.bunkr.su/v/maintenance.mp4', 'https://static.bunkr.la/v/maintenance.mp4']:
-            print(f"\t[-] Error Downloading \"{file_name}\", server is under maintenance\n")
+    final_path = os.path.join(download_path, file_name)
+
+    with session.get(item_url, stream=True) as r:
+        if r.status_code == 403:
+            print(f"\t[-] Error Downloading \"{file_name}\": 403 Forbidden\n")
             return
 
-        final_path = os.path.join(download_path, file_name)
         with open(final_path, 'wb') as f:
             for chunk in r.iter_content(chunk_size=8192):
                 f.write(chunk)
 
-        file_size = int(file_size)
-        if is_bunkr and file_size > -1:
-            downloaded_file_size = os.stat(final_path).st_size
-            if downloaded_file_size != file_size:
-                print(f"\t[-] {file_name} size check failed, file could be broken\n")
+    file_size = int(file_size)
+    if is_bunkr and file_size > -1:
+        downloaded_file_size = os.stat(final_path).st_size
+        if downloaded_file_size != file_size:
+            print(f"\t[-] {file_name} size check failed, file could be broken\n")
             return
 
     mark_as_downloaded(item_url, download_path)
 
     return
+
+def create_session():
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.82 Safari/537.36',
+        'Referer': 'https://bunkr.la/'
+    })
+    return session
 
 def get_url_data(url):
     parsed_url = urlparse(url)
@@ -138,6 +149,7 @@ def mark_as_downloaded(item_url, download_path):
         f.write(f"{item_url}\n")
 
     return
+
 
 def remove_illegal_chars(string):
     return re.sub(r'[<>:"/\\|?*\']|[\0-\31]', "-", string).strip()
