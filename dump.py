@@ -140,7 +140,7 @@ def mark_as_downloaded(item_url, download_path):
     return
 
 def remove_illegal_chars(string):
-    return re.sub(r"[<>:/\\|?*\"]|[\0-\31]", "-", string)
+    return re.sub(r'[<>:"/\\|?*\']|[\0-\31]', "-", string).strip()
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(sys.argv[1:])
