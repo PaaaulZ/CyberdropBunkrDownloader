@@ -25,7 +25,10 @@ def get_items_list(url, extensions, only_export, custom_path=None):
             soup = BeautifulSoup(r.content, 'html.parser')
             boxes = soup.find_all('a', {'class': 'grid-images_box-link'})
             for box in boxes:
-                items.append({'url': box['href'].replace('/cdn','/media-files'), 'size': -1})
+                if get_url_data(box['href'])['extension'].lower() in ['.jpg', '.png', '.gif', '.bmp']:
+                    items.append({'url': box['href'], 'size': -1})
+                else:
+                    items.append({'url': box['href'].replace('/cdn','/media-files'), 'size': -1})
         
         album_name = soup.find('h1', {'class': 'text-[24px]'}).text
         album_name = remove_illegal_chars(album_name[:album_name.index('\n')] if album_name.index('\n') > 0 else album_name)
