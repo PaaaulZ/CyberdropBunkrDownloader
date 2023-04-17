@@ -13,7 +13,7 @@ def get_items_list(url, extensions, only_export, custom_path=None):
     extensions_list = extensions.split(',') if extensions is not None else []
     hostname = get_url_data(url)['hostname']
        
-    r = requests.get(url)
+    r = requests.get(url, headers={'User-Agent': 'Googlebot/2.1 (+http://www.google.com/bot.html)'})
     if r.status_code != 200:
         raise Exception(f"[-] HTTP error {r.status_code}")
 
@@ -101,7 +101,7 @@ def download(item_url, download_path, file_size, is_bunkr=False):
 def create_session():
     session = requests.Session()
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.82 Safari/537.36',
+        'User-Agent': 'Googlebot/2.1 (+http://www.google.com/bot.html)',
         'Referer': 'https://bunkr.la/'
     })
     return session
