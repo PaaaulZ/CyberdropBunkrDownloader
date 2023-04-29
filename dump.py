@@ -7,6 +7,7 @@ import re
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse 
 import requests
+from tqdm import tqdm
 
 def get_items_list(url, extensions, only_export, custom_path=None):
 
@@ -53,7 +54,7 @@ def get_items_list(url, extensions, only_export, custom_path=None):
                 write_url_to_list(item['url'], download_path)
             else:
                 print(f"[+] Downloading {item['url']}")
-                download(item['url'], download_path, item['size'], hostname in ['bunkr.ru', 'bunkr.is', 'bunkr.su', 'bunkr.la'])
+                download(item['url'], download_path, hostname in ['bunkr.ru', 'bunkr.is', 'bunkr.su', 'bunkr.la'])
     
     print(f"\t[+] File list exported in {os.path.join(download_path,'url_list.txt')}" if only_export else f"\t[+] Download completed")
     return
@@ -72,7 +73,7 @@ def get_real_download_url(url):
     
     return None
 
-def download(item_url, download_path, file_size, is_bunkr=False):
+def download(item_url, download_path, is_bunkr=False):
     session = create_session()
 
     file_name = get_url_data(item_url)['file_name']
@@ -83,11 +84,14 @@ def download(item_url, download_path, file_size, is_bunkr=False):
             print(f"\t[-] Error Downloading \"{file_name}\": 403 Forbidden\n")
             return
 
+        file_size = int(r.headers.get('content-length', -1))
         with open(final_path, 'wb') as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
+            with tqdm(total=file_size, unit='iB', unit_scale=True, desc=file_name, leave=False) as pbar:
+                for chunk in r.iter_content(chunk_size=8192):
+                    if chunk is not None:
+                        f.write(chunk)
+                        pbar.update(len(chunk))
 
-    file_size = int(file_size)
     if is_bunkr and file_size > -1:
         downloaded_file_size = os.stat(final_path).st_size
         if downloaded_file_size != file_size:
