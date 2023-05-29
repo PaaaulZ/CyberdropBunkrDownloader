@@ -116,7 +116,7 @@ def get_url_data(url):
 
 def get_and_prepare_download_path(custom_path, album_name):
 
-    final_path = 'downloads' if custom_path is None else os.path.join(custom_path, 'downloads')
+    final_path = 'downloads' if custom_path is None else custom_path
     final_path = os.path.join(final_path, album_name) if album_name is not None else 'downloads'
     final_path = final_path.replace('\n', '')
 
