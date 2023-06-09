@@ -19,9 +19,9 @@ def get_items_list(url, extensions, only_export, custom_path=None):
         raise Exception(f"[-] HTTP error {r.status_code}")
 
     soup = BeautifulSoup(r.content, 'html.parser')
-    if hostname in ['bunkr.is', 'stream.bunkr.is', 'bunkr.ru', 'stream.bunkr.ru', 'bunkr.su', 'stream.bunkr.su', 'bunkr.la', 'stream.bunkr.la', 'app.bunkr.la']:
+    if hostname in ['bunkr.is', 'stream.bunkr.is', 'bunkr.ru', 'stream.bunkr.ru', 'bunkr.su', 'stream.bunkr.su', 'bunkr.la', 'stream.bunkr.la', 'app.bunkr.la', 'bunkrr.su']:
         items = []
-        album_or_file = 'file' if hostname in ['stream.bunkr.is', 'stream.bunkr.ru', 'stream.bunkr.su', 'stream.bunkr.la'] else 'album'
+        album_or_file = 'file' if hostname in ['stream.bunkr.is', 'stream.bunkr.ru', 'stream.bunkr.su', 'stream.bunkr.la', 'stream.bunkrr.su'] else 'album'
         if album_or_file == 'album':
             soup = BeautifulSoup(r.content, 'html.parser')
             boxes = soup.find_all('a', {'class': 'grid-images_box-link'})
@@ -54,14 +54,14 @@ def get_items_list(url, extensions, only_export, custom_path=None):
                 write_url_to_list(item['url'], download_path)
             else:
                 print(f"[+] Downloading {item['url']}")
-                download(item['url'], download_path, hostname in ['bunkr.ru', 'bunkr.is', 'bunkr.su', 'bunkr.la'])
+                download(item['url'], download_path, hostname in ['bunkr.ru', 'bunkr.is', 'bunkr.su', 'bunkr.la', 'bunkrr.su'])
     
     print(f"\t[+] File list exported in {os.path.join(download_path,'url_list.txt')}" if only_export else f"\t[+] Download completed")
     return
     
 def get_real_download_url(url):
 
-    r = requests.get(f"https://bunkr.la{url}")
+    r = requests.get(f"https://bunkrr.su{url}")
     if r.status_code != 200:
         return f"\t[-] HTTP error {r.status_code} getting real url for {url}"
     
@@ -80,9 +80,11 @@ def download(item_url, download_path, is_bunkr=False):
     final_path = os.path.join(download_path, file_name)
 
     with session.get(item_url, stream=True) as r:
-        if r.status_code == 403:
-            print(f"\t[-] Error Downloading \"{file_name}\": 403 Forbidden\n")
+        if r.status_code != 200:
+            print(f"\t[-] Error Downloading \"{file_name}\": {r.status_code}")
             return
+        if r.url == "https://bnkr.b-cdn.net/maintenance.mp4":
+            print(f"\t[-] Error Downloading \"{file_name}\": Server is down for maintenance")
 
         file_size = int(r.headers.get('content-length', -1))
         with open(final_path, 'wb') as f:
@@ -106,7 +108,7 @@ def create_session():
     session = requests.Session()
     session.headers.update({
         'User-Agent': 'Googlebot/2.1 (+http://www.google.com/bot.html)',
-        'Referer': 'https://bunkr.la/'
+        'Referer': 'https://bunkrr.su/'
     })
     return session
 
