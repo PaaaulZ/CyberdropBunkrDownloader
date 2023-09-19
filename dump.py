@@ -42,6 +42,7 @@ def get_items_list(url, extensions, only_export, custom_path=None):
 
     download_path = get_and_prepare_download_path(custom_path, album_name)
     already_downloaded_url = get_already_downloaded_url(download_path)
+
     for item in items:
         if 'https' not in item['url']:
             item = get_real_download_url(item['url'])
@@ -60,16 +61,13 @@ def get_items_list(url, extensions, only_export, custom_path=None):
     return
     
 def get_real_download_url(url):
-
     r = requests.get(f"https://bunkrr.su{url}")
     if r.status_code != 200:
         return f"\t[-] HTTP error {r.status_code} getting real url for {url}"
-    
     soup = BeautifulSoup(r.content, 'html.parser')
-    links = soup.find_all('a', {'class': 'text-primary'})
+    links = soup.find_all('a', href=True, string=re.compile("Download")) 
     for link in links:
-        if 'media-files' in link['href']:
-            return {'url': link['href'], 'size': -1}
+        return {'url': link['href'], 'size': -1}
     
     return None
 
