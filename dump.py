@@ -48,7 +48,7 @@ def get_items_list(url, extensions, only_export, custom_path=None):
             URL = item['url']
             item = get_real_download_url(item['url'])
             if item is None:
-                print(f"\t[-] Unable to find a download link for {item} | url: {URL}")
+                print(f"\t[-] Unable to find a download link for {item}")
                 continue
         extension = get_url_data(item['url'])['extension']
         if ((extension in extensions_list or len(extensions_list) == 0) and (item['url'] not in already_downloaded_url)):
