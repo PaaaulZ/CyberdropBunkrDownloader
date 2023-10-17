@@ -21,7 +21,3 @@ optional arguments:
   -w          Export url list (ex: for wget)
   -css        Check server status before downloading
   ```
-
-# Support
-
-[!["Buy Me A Beer"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/paaaulz)
