@@ -45,6 +45,7 @@ def get_items_list(url, extensions, only_export, custom_path=None):
 
     for item in items:
         if 'https' not in item['url']:
+            URL = item['url']
             item = get_real_download_url(item['url'])
             if item is None:
                 print(f"\t[-] Unable to find a download link for {item}")
@@ -65,10 +66,18 @@ def get_real_download_url(url):
     if r.status_code != 200:
         return f"\t[-] HTTP error {r.status_code} getting real url for {url}"
     soup = BeautifulSoup(r.content, 'html.parser')
-    links = soup.find_all('a', href=True, string=re.compile("Download")) 
+    links = soup.find_all('a', href=True, string=re.compile("Download"))
+
     for link in links:
         return {'url': link['href'], 'size': -1}
     
+    # obtain only img urls
+    imglinks = soup.find_all('a', href=re.compile("download=true"))
+    for link in imglinks:
+        if ".jpeg" in link['href'] or ".jpg" in link['href'] or ".png" in link['href']:
+            url = link['href'].replace("?download=true", "")
+            return {'url': url, 'size': -1}
+
     return None
 
 def download(item_url, download_path, is_bunkr=False):
