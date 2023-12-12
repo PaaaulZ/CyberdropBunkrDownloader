@@ -45,10 +45,9 @@ def get_items_list(url, extensions, only_export, custom_path=None):
 
     for item in items:
         if 'https' not in item['url']:
-            URL = item['url']
             item = get_real_download_url(item['url'])
             if item is None:
-                print(f"\t[-] Unable to find a download link for {item}")
+                print(f"\t\t[-] Unable to find a download link for {item}")
                 continue
         extension = get_url_data(item['url'])['extension']
         if ((extension in extensions_list or len(extensions_list) == 0) and (item['url'] not in already_downloaded_url)):
@@ -64,7 +63,8 @@ def get_items_list(url, extensions, only_export, custom_path=None):
 def get_real_download_url(url):
     r = requests.get(f"https://bunkrr.su{url}")
     if r.status_code != 200:
-        return f"\t[-] HTTP error {r.status_code} getting real url for {url}"
+        print(f"\t[-] HTTP error {r.status_code} getting real url for {url}")
+        return None
     soup = BeautifulSoup(r.content, 'html.parser')
     links = soup.find_all('a', href=True, string=re.compile("Download"))
 
