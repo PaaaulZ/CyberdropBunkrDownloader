@@ -74,7 +74,7 @@ def get_real_download_url(url):
     # obtain only img urls
     imglinks = soup.find_all('a', href=re.compile("download=true"))
     for link in imglinks:
-        if ".jpeg" in link['href'] or ".jpg" in link['href'] or ".png" in link['href']:
+        if ".jpeg" in link['href'] or ".jpg" in link['href'] or ".png" in link['href'] or ".gif" in link['href'] or ".webp" in link['href']:
             url = link['href'].replace("?download=true", "")
             return {'url': url, 'size': -1}
 
