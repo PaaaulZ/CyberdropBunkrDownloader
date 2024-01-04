@@ -13,20 +13,21 @@ def get_items_list(url, extensions, only_export, custom_path=None):
 
     extensions_list = extensions.split(',') if extensions is not None else []
     hostname = get_url_data(url)['hostname']
+    is_bunkr = hostname in ['bunkr.is', 'stream.bunkr.is', 'bunkr.ru', 'stream.bunkr.ru', 'bunkr.su', 'stream.bunkr.su', 'bunkr.la', 'stream.bunkr.la', 'app.bunkr.la', 'bunkrr.su']
        
     r = requests.get(url, headers={'User-Agent': 'Googlebot/2.1 (+http://www.google.com/bot.html)'})
     if r.status_code != 200:
         raise Exception(f"[-] HTTP error {r.status_code}")
 
     soup = BeautifulSoup(r.content, 'html.parser')
-    if hostname in ['bunkr.is', 'stream.bunkr.is', 'bunkr.ru', 'stream.bunkr.ru', 'bunkr.su', 'stream.bunkr.su', 'bunkr.la', 'stream.bunkr.la', 'app.bunkr.la', 'bunkrr.su']:
+    if is_bunkr:
         items = []
         album_or_file = 'file' if hostname in ['stream.bunkr.is', 'stream.bunkr.ru', 'stream.bunkr.su', 'stream.bunkr.la', 'stream.bunkrr.su'] else 'album'
         if album_or_file == 'album':
             soup = BeautifulSoup(r.content, 'html.parser')
             boxes = soup.find_all('a', {'class': 'grid-images_box-link'})
             for box in boxes:
-                if get_url_data(box['href'])['extension'].lower() in ['.jpg', '.png', '.gif', '.bmp']:
+                if get_url_data(box['href'])['extension'].lower() in ['.jpg', '.png', '.gif', '.bmp', '.webp']:
                     items.append({'url': box['href'], 'size': -1})
                 else:
                     items.append({'url': box['href'].replace('/cdn','/media-files'), 'size': -1})
@@ -37,17 +38,17 @@ def get_items_list(url, extensions, only_export, custom_path=None):
         items = []
         items_dom = soup.find_all('a', {'class': 'image'})
         for item_dom in items_dom:
-            items.append({'url': item_dom['href'], 'size': -1})
+            items.append({'url': f"https://cyberdrop.me{item_dom['href']}", 'size': -1})
         album_name = remove_illegal_chars(soup.find('h1', {'id': 'title'}).text)
 
     download_path = get_and_prepare_download_path(custom_path, album_name)
     already_downloaded_url = get_already_downloaded_url(download_path)
 
     for item in items:
-        if 'https' not in item['url']:
-            item = get_real_download_url(item['url'])
+        if ((is_bunkr and 'https' not in item['url']) or (not is_bunkr and '/f/' in item['url'])):
+            item = get_real_download_url(item['url'], is_bunkr)
             if item is None:
-                print(f"\t\t[-] Unable to find a download link for {item}")
+                print(f"\t\t[-] Unable to find a download link")
                 continue
         extension = get_url_data(item['url'])['extension']
         if ((extension in extensions_list or len(extensions_list) == 0) and (item['url'] not in already_downloaded_url)):
@@ -55,35 +56,40 @@ def get_items_list(url, extensions, only_export, custom_path=None):
                 write_url_to_list(item['url'], download_path)
             else:
                 print(f"[+] Downloading {item['url']}")
-                download(item['url'], download_path, hostname in ['bunkr.ru', 'bunkr.is', 'bunkr.su', 'bunkr.la', 'bunkrr.su'])
+                download(item['url'], download_path, is_bunkr, item['name'] if not is_bunkr else None)
     
     print(f"\t[+] File list exported in {os.path.join(download_path,'url_list.txt')}" if only_export else f"\t[+] Download completed")
     return
     
-def get_real_download_url(url):
-    r = requests.get(f"https://bunkrr.su{url}")
+def get_real_download_url(url, is_bunkr=True):
+    r = requests.get(f"https://bunkrr.su{url}" if is_bunkr else url.replace('/f/','/api/f/'))
     if r.status_code != 200:
         print(f"\t[-] HTTP error {r.status_code} getting real url for {url}")
         return None
-    soup = BeautifulSoup(r.content, 'html.parser')
-    links = soup.find_all('a', href=True, string=re.compile("Download"))
-
-    for link in links:
-        return {'url': link['href'], 'size': -1}
     
-    # obtain only img urls
-    imglinks = soup.find_all('a', href=re.compile("download=true"))
-    for link in imglinks:
-        if ".jpeg" in link['href'] or ".jpg" in link['href'] or ".png" in link['href'] or ".gif" in link['href'] or ".webp" in link['href']:
-            url = link['href'].replace("?download=true", "")
-            return {'url': url, 'size': -1}
+    if is_bunkr:
+        soup = BeautifulSoup(r.content, 'html.parser')
+        links = soup.find_all('a', href=True, string=re.compile("Download"))
+    
+        for link in links:
+            return {'url': link['href'], 'size': -1}
+        
+        imglinks = soup.find_all('a', href=re.compile("download=true"))
+        for link in imglinks:
+            if ".jpeg" in link['href'] or ".jpg" in link['href'] or ".png" in link['href'] or ".gif" in link['href'] or ".webp" in link['href']:
+                url = link['href'].replace("?download=true", "")
+                return {'url': url, 'size': -1}
+    else:
+        item_data = json.loads(r.content)
+        return {'url': item_data['url'], 'size': -1, 'name': item_data['name']}
+
 
     return None
 
-def download(item_url, download_path, is_bunkr=False):
+def download(item_url, download_path, is_bunkr=False, file_name=None):
     session = create_session()
 
-    file_name = get_url_data(item_url)['file_name']
+    file_name = get_url_data(item_url)['file_name'] if file_name is None else file_name
     final_path = os.path.join(download_path, file_name)
 
     with session.get(item_url, stream=True) as r:
