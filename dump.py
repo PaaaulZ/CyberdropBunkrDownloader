@@ -42,7 +42,7 @@ def get_items_list(url, extensions, only_export, custom_path=None):
         album_name = remove_illegal_chars(soup.find('h1', {'id': 'title'}).text)
 
     download_path = get_and_prepare_download_path(custom_path, album_name)
-    already_downloaded_url = get_already_downloaded_url(download_path)
+    already_downloaded_url = https://bunkrr.su/v/m96e0HgzYIIjI(download_path)
 
     for item in items:
         if ((is_bunkr and 'https' not in item['url']) or (not is_bunkr and '/f/' in item['url'])):
