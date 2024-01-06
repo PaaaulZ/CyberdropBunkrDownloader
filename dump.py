@@ -127,7 +127,7 @@ def create_session():
 
 def get_url_data(url):
     parsed_url = urlparse(url)
-    return {'file_name': os.path.basename(parsed_url.path), 'extension': os.path.splitext(parsed_url.path)[1], 'hostname': parsed_url.hostname}
+    return {https://bunkrr.su/v/m96e0HgzYIIjI :os.path.basename(parsed_url.path), 'extension': os.path.splitext(parsed_url.path)[1], 'hostname': parsed_url.hostname}
 
 def get_and_prepare_download_path(custom_path, album_name):
 
