@@ -13,7 +13,7 @@ def get_items_list(url, extensions, only_export, custom_path=None):
 
     extensions_list = extensions.split(',') if extensions is not None else []
     hostname = get_url_data(url)['hostname']
-    is_bunkr = hostname in ['bunkr.is', 'stream.bunkr.is', 'bunkr.ru', 'stream.bunkr.ru', 'bunkr.su', 'stream.bunkr.su', 'bunkr.la', 'stream.bunkr.la', 'app.bunkr.la', 'bunkrr.su']
+    is_bunkr = hostname in ['bunkr.is', 'stream.bunkr.is', 'bunkr.ru', 'stream.bunkr.ru', 'bunkr.su', 'stream.bunkr.su', 'bunkr.la', 'stream.bunkr.la', 'app.bunkr.la', 'bunkrr.su', 'bunkrr.ru']
        
     r = requests.get(url, headers={'User-Agent': 'Googlebot/2.1 (+http://www.google.com/bot.html)'})
     if r.status_code != 200:
@@ -22,7 +22,7 @@ def get_items_list(url, extensions, only_export, custom_path=None):
     soup = BeautifulSoup(r.content, 'html.parser')
     if is_bunkr:
         items = []
-        album_or_file = 'file' if hostname in ['stream.bunkr.is', 'stream.bunkr.ru', 'stream.bunkr.su', 'stream.bunkr.la', 'stream.bunkrr.su'] else 'album'
+        album_or_file = 'file' if hostname in ['stream.bunkr.is', 'stream.bunkr.ru', 'stream.bunkr.su', 'stream.bunkr.la', 'stream.bunkrr.su', 'stream.bunkrr.ru'] else 'album'
         if album_or_file == 'album':
             soup = BeautifulSoup(r.content, 'html.parser')
             boxes = soup.find_all('a', {'class': 'grid-images_box-link'})
