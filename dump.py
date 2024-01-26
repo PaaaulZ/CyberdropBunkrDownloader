@@ -9,20 +9,21 @@ from urllib.parse import urlparse
 import requests
 from tqdm import tqdm
 
-def get_items_list(url, extensions, only_export, custom_path=None):
+def get_items_list(session, url, extensions, only_export, custom_path=None):
 
     extensions_list = extensions.split(',') if extensions is not None else []
     hostname = get_url_data(url)['hostname']
-    is_bunkr = hostname in ['bunkr.is', 'stream.bunkr.is', 'bunkr.ru', 'stream.bunkr.ru', 'bunkr.su', 'stream.bunkr.su', 'bunkr.la', 'stream.bunkr.la', 'app.bunkr.la', 'bunkrr.su', 'bunkrr.ru']
        
-    r = requests.get(url, headers={'User-Agent': 'Googlebot/2.1 (+http://www.google.com/bot.html)'})
+    r = session.get(url)
     if r.status_code != 200:
         raise Exception(f"[-] HTTP error {r.status_code}")
 
     soup = BeautifulSoup(r.content, 'html.parser')
+    is_bunkr = "| Bunkr" in soup.find('title').text
+    
     if is_bunkr:
         items = []
-        album_or_file = 'file' if hostname in ['stream.bunkr.is', 'stream.bunkr.ru', 'stream.bunkr.su', 'stream.bunkr.la', 'stream.bunkrr.su', 'stream.bunkrr.ru'] else 'album'
+        album_or_file = 'file' if 'stream.' in hostname else 'album'
         if album_or_file == 'album':
             soup = BeautifulSoup(r.content, 'html.parser')
             boxes = soup.find_all('a', {'class': 'grid-images_box-link'})
@@ -46,7 +47,7 @@ def get_items_list(url, extensions, only_export, custom_path=None):
 
     for item in items:
         if ((is_bunkr and 'https' not in item['url']) or (not is_bunkr and '/f/' in item['url'])):
-            item = get_real_download_url(item['url'], is_bunkr)
+            item = get_real_download_url(session, item['url'], is_bunkr)
             if item is None:
                 print(f"\t\t[-] Unable to find a download link")
                 continue
@@ -56,13 +57,13 @@ def get_items_list(url, extensions, only_export, custom_path=None):
                 write_url_to_list(item['url'], download_path)
             else:
                 print(f"[+] Downloading {item['url']}")
-                download(item['url'], download_path, is_bunkr, item['name'] if not is_bunkr else None)
+                download(session, item['url'], download_path, is_bunkr, item['name'] if not is_bunkr else None)
     
     print(f"\t[+] File list exported in {os.path.join(download_path,'url_list.txt')}" if only_export else f"\t[+] Download completed")
     return
     
-def get_real_download_url(url, is_bunkr=True):
-    r = requests.get(f"https://bunkrr.su{url}" if is_bunkr else url.replace('/f/','/api/f/'))
+def get_real_download_url(session, url, is_bunkr=True):
+    r = session.get(f"https://bunkr.sk{url}" if is_bunkr else url.replace('/f/','/api/f/'))
     if r.status_code != 200:
         print(f"\t[-] HTTP error {r.status_code} getting real url for {url}")
         return None
@@ -86,8 +87,7 @@ def get_real_download_url(url, is_bunkr=True):
 
     return None
 
-def download(item_url, download_path, is_bunkr=False, file_name=None):
-    session = create_session()
+def download(session, item_url, download_path, is_bunkr=False, file_name=None):
 
     file_name = get_url_data(item_url)['file_name'] if file_name is None else file_name
     final_path = os.path.join(download_path, file_name)
@@ -120,8 +120,8 @@ def download(item_url, download_path, is_bunkr=False, file_name=None):
 def create_session():
     session = requests.Session()
     session.headers.update({
-        'User-Agent': 'Googlebot/2.1 (+http://www.google.com/bot.html)',
-        'Referer': 'https://bunkrr.su/'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://bunkr.sk/'
     })
     return session
 
@@ -185,4 +185,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding='utf-8')
-    get_items_list(args.u, args.e, args.w, args.p)
+
+    session = create_session()
+    get_items_list(session, args.u, args.e, args.w, args.p)
