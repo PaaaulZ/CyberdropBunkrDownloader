@@ -23,15 +23,10 @@ def get_items_list(session, url, extensions, only_export, custom_path=None):
     
     if is_bunkr:
         items = []
-        album_or_file = 'file' if 'stream.' in hostname else 'album'
-        if album_or_file == 'album':
-            soup = BeautifulSoup(r.content, 'html.parser')
-            boxes = soup.find_all('a', {'class': 'grid-images_box-link'})
-            for box in boxes:
-                if get_url_data(box['href'])['extension'].lower() in ['.jpg', '.png', '.gif', '.bmp', '.webp']:
-                    items.append({'url': box['href'], 'size': -1})
-                else:
-                    items.append({'url': box['href'].replace('/cdn','/media-files'), 'size': -1})
+        soup = BeautifulSoup(r.content, 'html.parser')
+        boxes = soup.find_all('a', {'class': 'grid-images_box-link'})
+        for box in boxes:
+            items.append({'url': box['href'], 'size': -1})
         
         album_name = soup.find('h1', {'class': 'text-[24px]'}).text
         album_name = remove_illegal_chars(album_name[:album_name.index('\n')] if album_name.index('\n') > 0 else album_name)
@@ -46,46 +41,68 @@ def get_items_list(session, url, extensions, only_export, custom_path=None):
     already_downloaded_url = get_already_downloaded_url(download_path)
 
     for item in items:
-        if ((is_bunkr and 'https' not in item['url']) or (not is_bunkr and '/f/' in item['url'])):
-            item = get_real_download_url(session, item['url'], is_bunkr)
-            if item is None:
-                print(f"\t\t[-] Unable to find a download link")
-                continue
+        item = get_real_download_url(session, item['url'], is_bunkr)
+        if item is None:
+            print(f"\t\t[-] Unable to find a download link")
+            continue
         extension = get_url_data(item['url'])['extension']
         if ((extension in extensions_list or len(extensions_list) == 0) and (item['url'] not in already_downloaded_url)):
             if only_export:
                 write_url_to_list(item['url'], download_path)
             else:
-                print(f"[+] Downloading {item['url']}")
+                print(f"\t[+] Downloading {item['url']}")
                 download(session, item['url'], download_path, is_bunkr, item['name'] if not is_bunkr else None)
     
     print(f"\t[+] File list exported in {os.path.join(download_path,'url_list.txt')}" if only_export else f"\t[+] Download completed")
     return
     
 def get_real_download_url(session, url, is_bunkr=True):
-    r = session.get(f"https://bunkr.sk{url}" if is_bunkr else url.replace('/f/','/api/f/'))
+
+    if is_bunkr:
+        url = url if 'https' in url else f'https://bunkr.sk{url}'
+    else:
+        url = url.replace('/f/','/api/f/')
+
+    r = session.get(url)
     if r.status_code != 200:
         print(f"\t[-] HTTP error {r.status_code} getting real url for {url}")
         return None
-    
+        
     if is_bunkr:
         soup = BeautifulSoup(r.content, 'html.parser')
-        links = soup.find_all('a', href=True, string=re.compile("Download"))
-    
+        source_dom = soup.find('source')
+        images_dom = soup.find_all('img')
+        links = soup.find_all('a',{'class': 'rounded-[5px]'})
+
+        if source_dom is not None:
+            return {'url': source_dom['src'], 'size': -1}
+        if images_dom is not None:
+            for image_dom in images_dom:
+                if image_dom.attrs.get('data-lightbox') is not None:
+                    return {'url': image_dom['src'], 'size': -1}
         for link in links:
-            return {'url': link['href'], 'size': -1}
-        
-        imglinks = soup.find_all('a', href=re.compile("download=true"))
-        for link in imglinks:
-            if ".jpeg" in link['href'] or ".jpg" in link['href'] or ".png" in link['href'] or ".gif" in link['href'] or ".webp" in link['href']:
-                url = link['href'].replace("?download=true", "")
-                return {'url': url, 'size': -1}
+            url = get_download_button_url(session, link['href'])
+            return {'url': url, 'size': -1} if url is not None else None
     else:
         item_data = json.loads(r.content)
         return {'url': item_data['url'], 'size': -1, 'name': item_data['name']}
 
 
     return None
+
+def get_download_button_url(session, gallery_url):
+    r = session.get(gallery_url)
+    if r.status_code == 403:
+        print(f"\t[-] DDoS Guard blocked request to {gallery_url}")
+        return None
+    
+    soup = BeautifulSoup(r.content, 'html.parser')
+    link = soup.find('a')
+    if link is not None:
+        return link['href']
+    
+    return None
+
 
 def download(session, item_url, download_path, is_bunkr=False, file_name=None):
 
@@ -94,10 +111,10 @@ def download(session, item_url, download_path, is_bunkr=False, file_name=None):
 
     with session.get(item_url, stream=True) as r:
         if r.status_code != 200:
-            print(f"\t[-] Error Downloading \"{file_name}\": {r.status_code}")
+            print(f"\t[-] Error downloading \"{file_name}\": {r.status_code}")
             return
         if r.url == "https://bnkr.b-cdn.net/maintenance.mp4":
-            print(f"\t[-] Error Downloading \"{file_name}\": Server is down for maintenance")
+            print(f"\t[-] Error downloading \"{file_name}\": Server is down for maintenance")
 
         file_size = int(r.headers.get('content-length', -1))
         with open(final_path, 'wb') as f:
