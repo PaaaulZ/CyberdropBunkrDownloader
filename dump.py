@@ -9,10 +9,9 @@ from urllib.parse import urlparse
 import requests
 from tqdm import tqdm
 
-def get_items_list(session, url, extensions, only_export, custom_path=None):
+def get_items_list(session, cdn_list, url, extensions, only_export, custom_path=None):
 
     extensions_list = extensions.split(',') if extensions is not None else []
-    hostname = get_url_data(url)['hostname']
        
     r = session.get(url)
     if r.status_code != 200:
@@ -41,10 +40,11 @@ def get_items_list(session, url, extensions, only_export, custom_path=None):
     already_downloaded_url = get_already_downloaded_url(download_path)
 
     for item in items:
-        item = get_real_download_url(session, item['url'], is_bunkr)
+        item = get_real_download_url(session, cdn_list, item['url'], is_bunkr)
         if item is None:
             print(f"\t\t[-] Unable to find a download link")
             continue
+
         extension = get_url_data(item['url'])['extension']
         if ((extension in extensions_list or len(extensions_list) == 0) and (item['url'] not in already_downloaded_url)):
             if only_export:
@@ -56,7 +56,7 @@ def get_items_list(session, url, extensions, only_export, custom_path=None):
     print(f"\t[+] File list exported in {os.path.join(download_path,'url_list.txt')}" if only_export else f"\t[+] Download completed")
     return
     
-def get_real_download_url(session, url, is_bunkr=True):
+def get_real_download_url(session, cdn_list, url, is_bunkr=True):
 
     if is_bunkr:
         url = url if 'https' in url else f'https://bunkr.sk{url}'
@@ -80,8 +80,8 @@ def get_real_download_url(session, url, is_bunkr=True):
             for image_dom in images_dom:
                 if image_dom.attrs.get('data-lightbox') is not None:
                     return {'url': image_dom['src'], 'size': -1}
-        for link in links:
-            url = get_download_button_url(session, link['href'])
+        if links is not None and len(links) > 0:
+            url = get_cdn_file_url(session, cdn_list, url)
             return {'url': url, 'size': -1} if url is not None else None
     else:
         item_data = json.loads(r.content)
@@ -90,17 +90,26 @@ def get_real_download_url(session, url, is_bunkr=True):
 
     return None
 
-def get_download_button_url(session, gallery_url):
-    r = session.get(gallery_url)
-    if r.status_code == 403:
-        print(f"\t[-] DDoS Guard blocked request to {gallery_url}")
+def get_cdn_file_url(session, cdn_list, gallery_url):
+
+    if cdn_list is None:
+        print(f"\t[-] CDN list is empty unable to download {gallery_url}")
         return None
     
-    soup = BeautifulSoup(r.content, 'html.parser')
-    link = soup.find('a')
-    if link is not None:
-        return link['href']
-    
+    for cdn in cdn_list:
+        url_to_test = f"https://{cdn}/{gallery_url[gallery_url.index('/d/')+3:]}"
+        r = session.get(url_to_test)
+        if r.status_code == 200:
+            return url_to_test
+        elif r.status_code == 404:
+            continue
+        elif r.status_code == 403:
+            print(f"\t\t[-] DDoSGuard blocked request to {gallery_url}, skipping")
+            return None
+        else:
+            print(f"\t\t[-] HTTP Error {r.status_code} for {gallery_url}, skipping")
+            return None
+        
     return None
 
 
@@ -189,6 +198,21 @@ def mark_as_downloaded(item_url, download_path):
 
     return
 
+def get_cdn_list(session):
+    r = session.get('https://status.bunkr.ru/')
+    if r.status_code != 200:
+        print(f"[-] HTTP Error {r.status_code} while getting cdn list")
+        return None
+    
+    cdn_ret = []
+    soup = BeautifulSoup(r.content, 'html.parser')
+    cdn_list = soup.find_all('h2')
+    if cdn_list is not None:
+        cdn_list = cdn_list[1:]
+        for cdn in cdn_list:
+            cdn_ret.append(f"{cdn.text}.bunkr.ru")
+
+    return cdn_ret
 
 def remove_illegal_chars(string):
     return re.sub(r'[<>:"/\\|?*\']|[\0-\31]', "-", string).strip()
@@ -204,4 +228,5 @@ if __name__ == '__main__':
     sys.stdout.reconfigure(encoding='utf-8')
 
     session = create_session()
-    get_items_list(session, args.u, args.e, args.w, args.p)
+    cdn_list = get_cdn_list(session)
+    get_items_list(session, cdn_list, args.u, args.e, args.w, args.p)
