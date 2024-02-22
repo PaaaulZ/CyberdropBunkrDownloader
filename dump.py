@@ -1,3 +1,4 @@
+import time
 import requests
 import json
 import argparse
@@ -5,12 +6,11 @@ import sys
 import os
 import re
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse 
-import requests
+from urllib.parse import urlparse
 from tqdm import tqdm
 
-def get_items_list(session, cdn_list, url, extensions, only_export, custom_path=None):
 
+def get_items_list(session, cdn_list, url, retries, extensions, only_export, custom_path=None):
     extensions_list = extensions.split(',') if extensions is not None else []
        
     r = session.get(url)
@@ -50,10 +50,20 @@ def get_items_list(session, cdn_list, url, extensions, only_export, custom_path=
             if only_export:
                 write_url_to_list(item['url'], download_path)
             else:
-                print(f"\t[+] Downloading {item['url']}")
-                download(session, item['url'], download_path, is_bunkr, item['name'] if not is_bunkr else None)
-    
-    print(f"\t[+] File list exported in {os.path.join(download_path,'url_list.txt')}" if only_export else f"\t[+] Download completed")
+                for i in range(1, retries + 1):
+                    try:
+                        print(f"\t[+] Downloading {item['url']} (try {i}/{retries})")
+                        download(session, item['url'], download_path, is_bunkr, item['name'] if not is_bunkr else None)
+                        break
+                    except requests.exceptions.ConnectionError as e:
+                        if i < retries:
+                            time.sleep(2)
+                            pass
+                        else:
+                            raise e
+
+    print(
+        f"\t[+] File list exported in {os.path.join(download_path, 'url_list.txt')}" if only_export else f"\t[+] Download completed")
     return
     
 def get_real_download_url(session, cdn_list, url, is_bunkr=True):
@@ -118,7 +128,7 @@ def download(session, item_url, download_path, is_bunkr=False, file_name=None):
     file_name = get_url_data(item_url)['file_name'] if file_name is None else file_name
     final_path = os.path.join(download_path, file_name)
 
-    with session.get(item_url, stream=True) as r:
+    with session.get(item_url, stream=True, timeout=5) as r:
         if r.status_code != 200:
             print(f"\t[-] Error downloading \"{file_name}\": {r.status_code}")
             return
@@ -220,6 +230,7 @@ def remove_illegal_chars(string):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(sys.argv[1:])
     parser.add_argument("-u", help="Url to fetch", type=str, required=True)
+    parser.add_argument("-r", help="Amount of retries in case the connection fails", type=int, required=False, default=10)
     parser.add_argument("-e", help="Extensions to download (comma separated)", type=str)
     parser.add_argument("-p", help="Path to custom downloads folder")
     parser.add_argument("-w", help="Export url list (ex: for wget)", action="store_true")
@@ -229,4 +240,4 @@ if __name__ == '__main__':
 
     session = create_session()
     cdn_list = get_cdn_list(session)
-    get_items_list(session, cdn_list, args.u, args.e, args.w, args.p)
+    get_items_list(session, cdn_list, args.u, args.r, args.e, args.w, args.p)
