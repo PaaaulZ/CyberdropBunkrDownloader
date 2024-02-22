@@ -62,8 +62,7 @@ def get_items_list(session, cdn_list, url, retries, extensions, only_export, cus
                         else:
                             raise e
 
-    print(
-        f"\t[+] File list exported in {os.path.join(download_path, 'url_list.txt')}" if only_export else f"\t[+] Download completed")
+    print(f"\t[+] File list exported in {os.path.join(download_path, 'url_list.txt')}" if only_export else f"\t[+] Download completed")
     return
     
 def get_real_download_url(session, cdn_list, url, is_bunkr=True):
