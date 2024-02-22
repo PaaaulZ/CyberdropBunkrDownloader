@@ -11,11 +11,12 @@ Basic usage: ```python3 dump.py -u [url]```
 # Full usage
 
 ```
-usage: ['--help'] [-h] -u U [-e E] [-s [S]] [-i] [-p P] [-w] [-cfs] [-css]
+usage: ['--help'] [-h] -u U [-r R] [-e E] [-s [S]] [-i] [-p P] [-w] [-cfs] [-css]
 
 optional arguments:
   -h, --help  show this help message and exit
   -u U        Url to fetch
+  -r R        Amount of retries in case the connection fails
   -e E        Extensions to download (comma separated)
   -p P        Path to custom downloads folder
   -w          Export url list (ex: for wget)

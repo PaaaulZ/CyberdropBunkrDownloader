@@ -230,7 +230,7 @@ def remove_illegal_chars(string):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(sys.argv[1:])
     parser.add_argument("-u", help="Url to fetch", type=str, required=True)
-    parser.add_argument("-r", help="Download retries", type=int, required=False, default=10)
+    parser.add_argument("-r", help="Amount of retries in case the connection fails", type=int, required=False, default=10)
     parser.add_argument("-e", help="Extensions to download (comma separated)", type=str)
     parser.add_argument("-p", help="Path to custom downloads folder")
     parser.add_argument("-w", help="Export url list (ex: for wget)", action="store_true")
