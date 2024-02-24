@@ -19,7 +19,7 @@ def get_items_list(session, cdn_list, url, retries, extensions, only_export, cus
 
     soup = BeautifulSoup(r.content, 'html.parser')
     is_bunkr = "| Bunkr" in soup.find('title').text
-    
+
     if is_bunkr:
         items = []
         soup = BeautifulSoup(r.content, 'html.parser')
@@ -39,20 +39,26 @@ def get_items_list(session, cdn_list, url, retries, extensions, only_export, cus
     download_path = get_and_prepare_download_path(custom_path, album_name)
     already_downloaded_url = get_already_downloaded_url(download_path)
 
+    i_items = 0
     for item in items:
+        i_items += 1
         item = get_real_download_url(session, cdn_list, item['url'], is_bunkr)
         if item is None:
             print(f"\t\t[-] Unable to find a download link")
             continue
 
+        if item['url'] in already_downloaded_url:
+            print(f"\t[=] ({i_items}/{len(items)}) Already downloaded {item['url']}")
+            continue
+
         extension = get_url_data(item['url'])['extension']
-        if ((extension in extensions_list or len(extensions_list) == 0) and (item['url'] not in already_downloaded_url)):
+        if extension in extensions_list or len(extensions_list) == 0:
             if only_export:
                 write_url_to_list(item['url'], download_path)
             else:
                 for i in range(1, retries + 1):
                     try:
-                        print(f"\t[+] Downloading {item['url']} (try {i}/{retries})")
+                        print(f"\t[+] ({i_items}/{len(items)}) Downloading {item['url']} (try {i}/{retries})")
                         download(session, item['url'], download_path, is_bunkr, item['name'] if not is_bunkr else None)
                         break
                     except requests.exceptions.ConnectionError as e:
@@ -64,7 +70,7 @@ def get_items_list(session, cdn_list, url, retries, extensions, only_export, cus
 
     print(f"\t[+] File list exported in {os.path.join(download_path, 'url_list.txt')}" if only_export else f"\t[+] Download completed")
     return
-    
+
 def get_real_download_url(session, cdn_list, url, is_bunkr=True):
 
     if is_bunkr:
