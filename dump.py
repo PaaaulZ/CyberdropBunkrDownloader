@@ -69,6 +69,10 @@ def get_items_list(session, cdn_list, url, retries, extensions, only_export, cus
                             raise e
 
     print(f"\t[+] File list exported in {os.path.join(download_path, 'url_list.txt')}" if only_export else f"\t[+] Download completed")
+
+    already_downloaded_url = get_already_downloaded_url(download_path)
+    if len(items) - len(already_downloaded_url) > 0:
+        print(f'\t\t [!] Missing {len(items) - len(already_downloaded_url)}')
     return
 
 def get_real_download_url(session, cdn_list, url, is_bunkr=True):
