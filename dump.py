@@ -253,6 +253,7 @@ if __name__ == '__main__':
         with open(args.f, 'r', encoding='utf-8') as f:
             urls = f.read().splitlines()
         for url in urls:
+            print(f"\t[-] Processing \"{url}\"...")
             get_items_list(session, cdn_list, url, args.r, args.e, args.w, args.p)
         sys.exit(0)
     else:
