@@ -228,7 +228,8 @@ def remove_illegal_chars(string):
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(sys.argv[1:])
-    parser.add_argument("-u", help="Url to fetch", type=str, required=True)
+    parser.add_argument("-u", help="Url to fetch", type=str, required=False, default=None)
+    parser.add_argument("-f", help="File to list of URLs to download", required=False, type=str, default=None)
     parser.add_argument("-r", help="Amount of retries in case the connection fails", type=int, required=False, default=10)
     parser.add_argument("-e", help="Extensions to download (comma separated)", type=str)
     parser.add_argument("-p", help="Path to custom downloads folder")
@@ -237,6 +238,24 @@ if __name__ == '__main__':
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding='utf-8')
 
+    if args.u is None and args.f is None:
+        print("[-] No URL or file provided")
+        sys.exit(1)
+
+    if args.u is not None and args.f is not None:
+        print("[-] Please provide only one URL or file")
+        sys.exit(1)
+
     session = create_session()
     cdn_list = get_cdn_list(session)
-    get_items_list(session, cdn_list, args.u, args.r, args.e, args.w, args.p)
+
+    if args.f is not None:
+        with open(args.f, 'r', encoding='utf-8') as f:
+            urls = f.read().splitlines()
+        for url in urls:
+            print(f"\t[-] Processing \"{url}\"...")
+            get_items_list(session, cdn_list, url, args.r, args.e, args.w, args.p)
+        sys.exit(0)
+    else:
+        get_items_list(session, cdn_list, args.u, args.r, args.e, args.w, args.p)
+    sys.exit(0)
