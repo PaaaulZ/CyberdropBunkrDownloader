@@ -23,12 +23,22 @@ def get_items_list(session, cdn_list, url, retries, extensions, only_export, cus
     if is_bunkr:
         items = []
         soup = BeautifulSoup(r.content, 'html.parser')
-        boxes = soup.find_all('a', {'class': 'grid-images_box-link'})
-        for box in boxes:
-            items.append({'url': box['href'], 'size': -1})
-        
-        album_name = soup.find('h1', {'class': 'text-[24px]'}).text
-        album_name = remove_illegal_chars(album_name[:album_name.index('\n')] if album_name.index('\n') > 0 else album_name)
+
+        direct_link = soup.find('a', {'id': 'czmDownloadz'}) is not None or soup.find('div', {'class': 'lightgallery'}) is not None
+        if direct_link:
+            album_name = soup.find('h1', {'class': 'text-[20px]'})
+            if album_name is None:
+                album_name = soup.find('h1', {'class': 'text-[24px]'})
+
+            album_name = remove_illegal_chars(album_name.text[:album_name.text.index('\n')] if album_name.text.index('\n') > 0 else album_name.text)
+            items.append(get_real_download_url(session, cdn_list, url, True))
+        else:
+            boxes = soup.find_all('a', {'class': 'grid-images_box-link'})
+            for box in boxes:
+                items.append({'url': box['href'], 'size': -1})
+            
+            album_name = soup.find('h1', {'class': 'text-[24px]'}).text
+            album_name = remove_illegal_chars(album_name[:album_name.index('\n')] if album_name.index('\n') > 0 else album_name)
     else:
         items = []
         items_dom = soup.find_all('a', {'class': 'image'})
@@ -40,10 +50,11 @@ def get_items_list(session, cdn_list, url, retries, extensions, only_export, cus
     already_downloaded_url = get_already_downloaded_url(download_path)
 
     for item in items:
-        item = get_real_download_url(session, cdn_list, item['url'], is_bunkr)
-        if item is None:
-            print(f"\t\t[-] Unable to find a download link")
-            continue
+        if not direct_link:
+            item = get_real_download_url(session, cdn_list, item['url'], is_bunkr)
+            if item is None:
+                print(f"\t\t[-] Unable to find a download link")
+                continue
 
         extension = get_url_data(item['url'])['extension']
         if ((extension in extensions_list or len(extensions_list) == 0) and (item['url'] not in already_downloaded_url)):
@@ -96,17 +107,19 @@ def get_real_download_url(session, cdn_list, url, is_bunkr=True):
         item_data = json.loads(r.content)
         return {'url': item_data['url'], 'size': -1, 'name': item_data['name']}
 
-
     return None
 
-def get_cdn_file_url(session, cdn_list, gallery_url):
+def get_cdn_file_url(session, cdn_list, gallery_url, file_name=None):
 
     if cdn_list is None:
         print(f"\t[-] CDN list is empty unable to download {gallery_url}")
         return None
-    
+       
     for cdn in cdn_list:
-        url_to_test = f"https://{cdn}/{gallery_url[gallery_url.index('/d/')+3:]}"
+        if file_name is None:
+            url_to_test = f"https://{cdn}/{gallery_url[gallery_url.index('/d/')+3:]}"
+        else:
+            url_to_test = f"https://{cdn}/{file_name}"
         r = session.get(url_to_test)
         if r.status_code == 200:
             return url_to_test
