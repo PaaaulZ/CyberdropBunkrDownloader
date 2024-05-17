@@ -19,6 +19,8 @@ def get_items_list(session, cdn_list, url, retries, extensions, only_export, cus
 
     soup = BeautifulSoup(r.content, 'html.parser')
     is_bunkr = "| Bunkr" in soup.find('title').text
+
+    direct_link = False
     
     if is_bunkr:
         items = []
