@@ -10,8 +10,9 @@ from urllib.parse import urlparse
 from tqdm import tqdm
 
 
-def get_items_list(session, cdn_list, url, retries, extensions, only_export, custom_path=None):
+def get_items_list(session, cdn_list, url, retries, extensions, exclusions, only_export, custom_path=None):
     extensions_list = extensions.split(',') if extensions is not None else []
+    exclude_list = exclusions.split(',') if exclusions is not None else []
        
     r = session.get(url)
     if r.status_code != 200:
@@ -55,25 +56,37 @@ def get_items_list(session, cdn_list, url, retries, extensions, only_export, cus
         if not direct_link:
             item = get_real_download_url(session, cdn_list, item['url'], is_bunkr)
             if item is None:
-                print(f"\t\t[-] Unable to find a download link")
+                print("\t\t[-] Unable to find a download link")
                 continue
 
         extension = get_url_data(item['url'])['extension']
-        if ((extension in extensions_list or len(extensions_list) == 0) and (item['url'] not in already_downloaded_url)):
-            if only_export:
-                write_url_to_list(item['url'], download_path)
-            else:
-                for i in range(1, retries + 1):
-                    try:
-                        print(f"\t[+] Downloading {item['url']} (try {i}/{retries})")
-                        download(session, item['url'], download_path, is_bunkr, item['name'] if not is_bunkr else None)
-                        break
-                    except requests.exceptions.ConnectionError as e:
-                        if i < retries:
-                            time.sleep(2)
-                            pass
-                        else:
-                            raise e
+
+        if extension in exclude_list:
+            print(f"\t[-] Skipping {item['url']} (excluded extension)")
+            continue
+
+        if extension not in extensions_list and len(extensions_list) > 0:
+            print(f"\t[-] Skipping {item['url']} (extension not included)")
+            continue
+
+        if item['url'] in already_downloaded_url:
+            print(f"\t[-] Skipping {item['url']} (already downloaded)")
+            continue
+
+        if only_export:
+            write_url_to_list(item['url'], download_path)
+        else:
+            for i in range(1, retries + 1):
+                try:
+                    print(f"\t[+] Downloading {item['url']} (try {i}/{retries})")
+                    download(session, item['url'], download_path, is_bunkr, item['name'] if not is_bunkr else None)
+                    break
+                except requests.exceptions.ConnectionError as e:
+                    if i < retries:
+                        time.sleep(2)
+                        pass
+                    else:
+                        raise e
 
     print(f"\t[+] File list exported in {os.path.join(download_path, 'url_list.txt')}" if only_export else f"\t[+] Download completed")
     return
@@ -247,6 +260,7 @@ if __name__ == '__main__':
     parser.add_argument("-f", help="File to list of URLs to download", required=False, type=str, default=None)
     parser.add_argument("-r", help="Amount of retries in case the connection fails", type=int, required=False, default=10)
     parser.add_argument("-e", help="Extensions to download (comma separated)", type=str)
+    parser.add_argument("-x", help="Extensions to exclude (comma separated)", type=str)
     parser.add_argument("-p", help="Path to custom downloads folder")
     parser.add_argument("-w", help="Export url list (ex: for wget)", action="store_true")
 
@@ -269,8 +283,8 @@ if __name__ == '__main__':
             urls = f.read().splitlines()
         for url in urls:
             print(f"\t[-] Processing \"{url}\"...")
-            get_items_list(session, cdn_list, url, args.r, args.e, args.w, args.p)
+            get_items_list(session, cdn_list, url, args.r, args.e, args.x, args.w, args.p)
         sys.exit(0)
     else:
-        get_items_list(session, cdn_list, args.u, args.r, args.e, args.w, args.p)
+        get_items_list(session, cdn_list, args.u, args.r, args.e, args.x, args.w, args.p)
     sys.exit(0)
