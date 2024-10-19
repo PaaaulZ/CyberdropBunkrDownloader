@@ -21,6 +21,7 @@ optional arguments:
   -f F        File of Urls to fetch
   -r R        Amount of retries in case the connection fails
   -e E        Extensions to download (comma separated)
+  -x X        Extensions to exclude (comma separated)
   -p P        Path to custom downloads folder
   -w          Export url list (ex: for wget)
   -css        Check server status before downloading
