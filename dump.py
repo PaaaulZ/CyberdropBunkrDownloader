@@ -26,21 +26,21 @@ def get_items_list(session, cdn_list, url, retries, extensions, only_export, cus
         items = []
         soup = BeautifulSoup(r.content, 'html.parser')
 
-        direct_link = soup.find('a', {'id': 'czmDownloadz'}) is not None or soup.find('div', {'class': 'lightgallery'}) is not None
+        direct_link = soup.find('span', {'class': 'ic-videos'}) is not None or soup.find('div', {'class': 'lightgallery'}) is not None
         if direct_link:
             album_name = soup.find('h1', {'class': 'text-[20px]'})
             if album_name is None:
-                album_name = soup.find('h1', {'class': 'text-[24px]'})
+                album_name = soup.find('h1', {'class': 'truncate'})
 
-            album_name = remove_illegal_chars(album_name.text[:album_name.text.index('\n')] if album_name.text.index('\n') > 0 else album_name.text)
+            album_name = remove_illegal_chars(album_name.text)
             items.append(get_real_download_url(session, cdn_list, url, True))
         else:
-            boxes = soup.find_all('a', {'class': 'grid-images_box-link'})
+            boxes = soup.find_all('a', {'class': 'after:absolute'})
             for box in boxes:
                 items.append({'url': box['href'], 'size': -1})
             
-            album_name = soup.find('h1', {'class': 'text-[24px]'}).text
-            album_name = remove_illegal_chars(album_name[:album_name.index('\n')] if album_name.index('\n') > 0 else album_name)
+            album_name = soup.find('h1', {'class': 'truncate'}).text
+            album_name = remove_illegal_chars(album_name)
     else:
         items = []
         items_dom = soup.find_all('a', {'class': 'image'})
@@ -89,20 +89,21 @@ def get_real_download_url(session, cdn_list, url, is_bunkr=True):
     if r.status_code != 200:
         print(f"\t[-] HTTP error {r.status_code} getting real url for {url}")
         return None
-        
+           
     if is_bunkr:
         soup = BeautifulSoup(r.content, 'html.parser')
         source_dom = soup.find('source')
-        images_dom = soup.find_all('img')
-        links = soup.find_all('a',{'class': 'rounded-[5px]'})
+        media_player_dom = soup.find('media-player')
+        image_dom = soup.find('img', {'class': 'max-h-full'})
+        link_dom = soup.find('h1',{'class': 'truncate'})
 
         if source_dom is not None:
             return {'url': source_dom['src'], 'size': -1}
-        if images_dom is not None:
-            for image_dom in images_dom:
-                if image_dom.attrs.get('data-lightbox') is not None:
-                    return {'url': image_dom['src'], 'size': -1}
-        if links is not None and len(links) > 0:
+        if media_player_dom is not None:
+            return {'url': media_player_dom['src'], 'size': -1}
+        if image_dom is not None:
+            return {'url': image_dom['src'], 'size': -1}
+        if link_dom is not None:
             url = get_cdn_file_url(session, cdn_list, url)
             return {'url': url, 'size': -1} if url is not None else None
     else:
@@ -113,7 +114,7 @@ def get_real_download_url(session, cdn_list, url, is_bunkr=True):
 
 def get_cdn_file_url(session, cdn_list, gallery_url, file_name=None):
 
-    if cdn_list is None:
+    if cdn_list is None or len(cdn_list) == 0:
         print(f"\t[-] CDN list is empty unable to download {gallery_url}")
         return None
        
@@ -122,7 +123,8 @@ def get_cdn_file_url(session, cdn_list, gallery_url, file_name=None):
             url_to_test = f"https://{cdn}/{gallery_url[gallery_url.index('/d/')+3:]}"
         else:
             url_to_test = f"https://{cdn}/{file_name}"
-        r = session.get(url_to_test)
+
+        r = session.get(url_to_test, timeout=20)
         if r.status_code == 200:
             return url_to_test
         elif r.status_code == 404:
@@ -228,13 +230,17 @@ def get_cdn_list(session):
         print(f"[-] HTTP Error {r.status_code} while getting cdn list")
         return None
     
+    i = 1
     cdn_ret = []
     soup = BeautifulSoup(r.content, 'html.parser')
-    cdn_list = soup.find_all('h2')
+    cdn_list = soup.find_all('p', {'class': 'flex-1'})
     if cdn_list is not None:
         cdn_list = cdn_list[1:]
         for cdn in cdn_list:
-            cdn_ret.append(f"{cdn.text}.bunkr.ru")
+            if i > 4:
+                # Ignore first 4 items, not cdn names
+                cdn_ret.append(f"{cdn.text.lower()}.bunkr.ru")
+            i += 1
 
     return cdn_ret
 
