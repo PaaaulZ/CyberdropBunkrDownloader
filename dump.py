@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 from tqdm import tqdm
 
 
-def get_items_list(session, cdn_list, url, retries, extensions, only_export, custom_path=None):
+def get_items_list(session, url, retries, extensions, only_export, custom_path=None):
     extensions_list = extensions.split(',') if extensions is not None else []
        
     r = session.get(url)
@@ -33,7 +33,7 @@ def get_items_list(session, cdn_list, url, retries, extensions, only_export, cus
                 album_name = soup.find('h1', {'class': 'truncate'})
 
             album_name = remove_illegal_chars(album_name.text)
-            items.append(get_real_download_url(session, cdn_list, url, True))
+            items.append(get_real_download_url(session, url, True))
         else:
             boxes = soup.find_all('a', {'class': 'after:absolute'})
             for box in boxes:
@@ -53,7 +53,7 @@ def get_items_list(session, cdn_list, url, retries, extensions, only_export, cus
 
     for item in items:
         if not direct_link:
-            item = get_real_download_url(session, cdn_list, item['url'], is_bunkr)
+            item = get_real_download_url(session, item['url'], is_bunkr)
             if item is None:
                 print(f"\t\t[-] Unable to find a download link")
                 continue
@@ -78,7 +78,7 @@ def get_items_list(session, cdn_list, url, retries, extensions, only_export, cus
     print(f"\t[+] File list exported in {os.path.join(download_path, 'url_list.txt')}" if only_export else f"\t[+] Download completed")
     return
     
-def get_real_download_url(session, cdn_list, url, is_bunkr=True):
+def get_real_download_url(session, url, is_bunkr=True):
 
     if is_bunkr:
         url = url if 'https' in url else f'https://bunkr.sk{url}'
@@ -95,7 +95,7 @@ def get_real_download_url(session, cdn_list, url, is_bunkr=True):
         source_dom = soup.find('source')
         media_player_dom = soup.find('media-player')
         image_dom = soup.find('img', {'class': 'max-h-full'})
-        link_dom = soup.find('h1',{'class': 'truncate'})
+        link_dom = soup.find('a',{'class': 'ic-download-01'})
 
         if source_dom is not None:
             return {'url': source_dom['src'], 'size': -1}
@@ -104,7 +104,7 @@ def get_real_download_url(session, cdn_list, url, is_bunkr=True):
         if image_dom is not None:
             return {'url': image_dom['src'], 'size': -1}
         if link_dom is not None:
-            url = get_cdn_file_url(session, cdn_list, url)
+            url = get_cdn_file_url(session, link_dom['href'])
             return {'url': url, 'size': -1} if url is not None else None
     else:
         item_data = json.loads(r.content)
@@ -112,31 +112,16 @@ def get_real_download_url(session, cdn_list, url, is_bunkr=True):
 
     return None
 
-def get_cdn_file_url(session, cdn_list, gallery_url, file_name=None):
+def get_cdn_file_url(session, download_page_url):
 
-    if cdn_list is None or len(cdn_list) == 0:
-        print(f"\t[-] CDN list is empty unable to download {gallery_url}")
+    r = session.get(download_page_url)
+    if r.status_code != 200:
+        print(f"\t\t[-] HTTP ERROR {r.status_code} getting direct CDN url")
         return None
-       
-    for cdn in cdn_list:
-        if file_name is None:
-            url_to_test = f"https://{cdn}/{gallery_url[gallery_url.index('/d/')+3:]}"
-        else:
-            url_to_test = f"https://{cdn}/{file_name}"
-
-        r = session.get(url_to_test, timeout=20)
-        if r.status_code == 200:
-            return url_to_test
-        elif r.status_code == 404:
-            continue
-        elif r.status_code == 403:
-            print(f"\t\t[-] DDoSGuard blocked request to {gallery_url}, skipping")
-            return None
-        else:
-            print(f"\t\t[-] HTTP Error {r.status_code} for {gallery_url}, skipping")
-            return None
-        
-    return None
+    
+    soup = BeautifulSoup(r.content, 'html.parser')
+    download_btn = soup.find('a', {'class': 'ic-download-01'})
+    return download_btn['href'] if download_btn is not None else None
 
 
 def download(session, item_url, download_path, is_bunkr=False, file_name=None):
@@ -172,8 +157,8 @@ def download(session, item_url, download_path, is_bunkr=False, file_name=None):
 def create_session():
     session = requests.Session()
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': 'https://bunkr.sk/'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+        'Referer': 'https://bunkr.sk/',
     })
     return session
 
@@ -224,26 +209,6 @@ def mark_as_downloaded(item_url, download_path):
 
     return
 
-def get_cdn_list(session):
-    r = session.get('https://status.bunkr.ru/')
-    if r.status_code != 200:
-        print(f"[-] HTTP Error {r.status_code} while getting cdn list")
-        return None
-    
-    i = 1
-    cdn_ret = []
-    soup = BeautifulSoup(r.content, 'html.parser')
-    cdn_list = soup.find_all('p', {'class': 'flex-1'})
-    if cdn_list is not None:
-        cdn_list = cdn_list[1:]
-        for cdn in cdn_list:
-            if i > 4:
-                # Ignore first 4 items, not cdn names
-                cdn_ret.append(f"{cdn.text.lower()}.bunkr.ru")
-            i += 1
-
-    return cdn_ret
-
 def remove_illegal_chars(string):
     return re.sub(r'[<>:"/\\|?*\']|[\0-\31]', "-", string).strip()
     
@@ -268,15 +233,14 @@ if __name__ == '__main__':
         sys.exit(1)
 
     session = create_session()
-    cdn_list = get_cdn_list(session)
 
     if args.f is not None:
         with open(args.f, 'r', encoding='utf-8') as f:
             urls = f.read().splitlines()
         for url in urls:
             print(f"\t[-] Processing \"{url}\"...")
-            get_items_list(session, cdn_list, url, args.r, args.e, args.w, args.p)
+            get_items_list(session, url, args.r, args.e, args.w, args.p)
         sys.exit(0)
     else:
-        get_items_list(session, cdn_list, args.u, args.r, args.e, args.w, args.p)
+        get_items_list(session, args.u, args.r, args.e, args.w, args.p)
     sys.exit(0)
