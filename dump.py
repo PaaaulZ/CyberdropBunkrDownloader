@@ -8,7 +8,11 @@ import re
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from tqdm import tqdm
+from base64 import b64decode
+from math import floor
 
+BUNKR_VS_API_URL_FOR_SLUG = "https://bunkr.cr/api/vs"
+SECRET_KEY_BASE = "SECRET_KEY_"
 
 def get_items_list(session, url, retries, extensions, only_export, custom_path=None):
     extensions_list = extensions.split(',') if extensions is not None else []
@@ -91,38 +95,11 @@ def get_real_download_url(session, url, is_bunkr=True):
         return None
            
     if is_bunkr:
-        soup = BeautifulSoup(r.content, 'html.parser')
-        source_dom = soup.find('source')
-        media_player_dom = soup.find('media-player')
-        image_dom = soup.find('img', {'class': 'max-h-full'})
-        link_dom = soup.find('a',{'class': 'ic-download-01'})
-
-        if source_dom is not None:
-            return {'url': source_dom['src'], 'size': -1}
-        if media_player_dom is not None:
-            return {'url': media_player_dom['src'], 'size': -1}
-        if image_dom is not None:
-            return {'url': image_dom['src'], 'size': -1}
-        if link_dom is not None:
-            url = get_cdn_file_url(session, link_dom['href'])
-            return {'url': url, 'size': -1} if url is not None else None
+        slug = re.search(r'\/f\/(.*?)$', url).group(1)
+        return {'url': decrypt_encrypted_url(get_encryption_data(slug)), 'size': -1}
     else:
         item_data = json.loads(r.content)
         return {'url': item_data['url'], 'size': -1, 'name': item_data['name']}
-
-    return None
-
-def get_cdn_file_url(session, download_page_url):
-
-    r = session.get(download_page_url)
-    if r.status_code != 200:
-        print(f"\t\t[-] HTTP ERROR {r.status_code} getting direct CDN url")
-        return None
-    
-    soup = BeautifulSoup(r.content, 'html.parser')
-    download_btn = soup.find('a', {'class': 'ic-download-01'})
-    return download_btn['href'] if download_btn is not None else None
-
 
 def download(session, item_url, download_path, is_bunkr=False, file_name=None):
 
@@ -211,6 +188,28 @@ def mark_as_downloaded(item_url, download_path):
 
 def remove_illegal_chars(string):
     return re.sub(r'[<>:"/\\|?*\']|[\0-\31]', "-", string).strip()
+
+def get_encryption_data(slug=None):
+
+    r = session.post(BUNKR_VS_API_URL_FOR_SLUG, json={'slug': slug})
+    if r.status_code != 200:
+        print(f"\t\t[-] HTTP ERROR {r.status_code} getting encryption data")
+        return None
+    
+    return json.loads(r.content)
+
+def decrypt_encrypted_url(encryption_data):
+
+    secret_key = f"{SECRET_KEY_BASE}{floor(encryption_data['timestamp'] / 3600)}"
+    encrypted_url_bytearray = list(b64decode(encryption_data['url']))
+    secret_key_byte_array = list(secret_key.encode('utf-8'))
+
+    decrypted_url = ""
+
+    for i in range(len(encrypted_url_bytearray)):
+        decrypted_url += chr(encrypted_url_bytearray[i] ^ secret_key_byte_array[i % len(secret_key_byte_array)])
+
+    return decrypted_url
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(sys.argv[1:])
