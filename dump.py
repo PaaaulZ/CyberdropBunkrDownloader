@@ -6,6 +6,8 @@ import argparse
 import sys
 import os
 import re
+import base64
+import math
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin
 from tqdm import tqdm
@@ -97,7 +99,7 @@ def get_real_download_url(session, url, is_bunkr=True):
         if not url.startswith('http'):
             url = urljoin('https://bunkr.sk', url)
     else:
-        url = url.replace('/f/','/api/f/')
+        url = url.replace('/f/', '/api/f/')
 
     print(f"\t[DEBUG] Fetching real download URL for: {url}")
 
@@ -114,17 +116,37 @@ def get_real_download_url(session, url, is_bunkr=True):
             print(f"\t[DEBUG] File name from title: {file_name}")
             print(f"\t[DEBUG] File page HTML: {r.text[:500]}...")
 
+            # Try to extract file ID from og:image meta tag
+            og_image = soup.find('meta', {'property': 'og:image'})
+            if og_image and og_image.get('content'):
+                image_url = og_image.get('content')
+                print(f"\t[DEBUG] Found og:image: {image_url}")
+                
+                # Extract the content ID from the image URL
+                content_id_match = re.search(r'thumbs/([a-zA-Z0-9-]+)', image_url)
+                if content_id_match:
+                    content_id = content_id_match.group(1)
+                    # Determine the correct CDN domain based on the og:image URL
+                    if 'i-wings.bunkr.ru' in image_url:
+                        cdn_domain = 'wings.bunkr.ru'
+                    elif 'i-pizza.bunkr.ru' in image_url:
+                        cdn_domain = 'pizza.bunkr.ru'
+                    else:
+                        domain_match = re.search(r'i-([a-zA-Z0-9]+)\.bunkr\.ru', image_url)
+                        if domain_match:
+                            cdn_domain = f"{domain_match.group(1)}.bunkr.ru"
+                        else:
+                            cdn_domain = 'pizza.bunkr.ru'  # default fallback
+                    # Construct the direct CDN URL using the determined domain
+                    direct_cdn_url = f"https://{cdn_domain}/{content_id}.mp4"
+                    if file_name:
+                        direct_cdn_url += f"?n={file_name}"
+                    print(f"\t[DEBUG] Generated direct CDN URL: {direct_cdn_url}")
+                    return {'url': direct_cdn_url, 'size': -1, 'name': file_name}
+
             # Attempt to find the download button that goes to the get.bunkrr.su page
             download_btn = soup.find('a', {'class': 'ic-download-01'})
             if download_btn and download_btn.get('href'):
-                # Try to extract a direct CDN URL based on file id format if present
-                file_id_match = re.search(r'file/(\d+)', download_btn['href'])
-                if file_id_match:
-                    file_id = file_id_match.group(1)
-                    direct_cdn_url = f"https://media-files2.bunkr.ru/{file_id}"
-                    print(f"\t[DEBUG] Trying direct CDN URL: {direct_cdn_url}")
-                    return {'url': direct_cdn_url, 'size': -1, 'name': file_name}
-                # Otherwise, try to get the final download link from the download page
                 download_url = get_cdn_file_url(session, download_btn['href'])
                 if download_url:
                     return {'url': download_url, 'size': -1, 'name': file_name}
@@ -142,18 +164,6 @@ def get_real_download_url(session, url, is_bunkr=True):
                 return {'url': video_player['src'], 'size': -1, 'name': file_name}
             if image_dom and image_dom.get('src'):
                 return {'url': image_dom['src'], 'size': -1, 'name': file_name}
-
-            # Alternative debug approach using potential debug info in the page
-            debug_info = re.search(r'Debug: Original=([^,]+), Size=(\d+)', r.text)
-            if debug_info:
-                file_name = debug_info.group(1)
-                size = int(debug_info.group(2))
-                file_id_match = re.search(r'/f/([a-zA-Z0-9]+)', url)
-                if file_id_match:
-                    file_id = file_id_match.group(1)
-                    direct_cdn_url = f"https://media-files.bunkr.ru/{file_id}/{file_name}"
-                    print(f"\t[DEBUG] Trying alternative direct CDN URL: {direct_cdn_url}")
-                    return {'url': direct_cdn_url, 'size': size, 'name': file_name}
 
             print(f"\t[-] Unable to find a valid download URL for {url}")
             return {'url': None, 'size': -1}
@@ -174,6 +184,29 @@ def get_real_download_url(session, url, is_bunkr=True):
         return {'url': None, 'size': -1}
 
 
+def decrypt_bunkr_url(encrypted_data):
+    """
+    Decrypt Bunkr encrypted URL using a simple XOR decryption algorithm similar to the JavaScript.
+    """
+    try:
+        if encrypted_data.get('encrypted') and 'url' in encrypted_data and 'timestamp' in encrypted_data:
+            encrypted_url = encrypted_data['url']
+            timestamp = encrypted_data['timestamp']
+            # Create a secret key (this mimics the logic used in the JS snippet)
+            secret_key = f"SECRET_KEY_{math.floor(timestamp / 3600)}"
+            # Base64 decode the encrypted URL
+            encrypted_bytes = base64.b64decode(encrypted_url)
+            key_bytes = secret_key.encode('utf-8')
+            decrypted_bytes = bytearray(len(encrypted_bytes))
+            for i in range(len(encrypted_bytes)):
+                decrypted_bytes[i] = encrypted_bytes[i] ^ key_bytes[i % len(key_bytes)]
+            return decrypted_bytes.decode('utf-8')
+        return None
+    except Exception as e:
+        print(f"\t[-] Error decrypting URL: {str(e)}")
+        return None
+
+
 def get_cdn_file_url(session, download_page_url):
     if not download_page_url.startswith('http'):
         download_page_url = urljoin('https://bunkr.sk', download_page_url)
@@ -186,62 +219,41 @@ def get_cdn_file_url(session, download_page_url):
             print(f"\t\t[-] HTTP ERROR {r.status_code} getting direct CDN url")
             return None
 
-        # For debugging: print part of the HTML content
         print(f"\t[DEBUG] Download page HTML: {r.text[:500]}...")
 
+        # First, attempt to find encrypted JSON data
+        encrypted_json_match = re.search(r'(\{[\s\S]*?"encrypted"\s*:\s*true[\s\S]*?\})', r.text)
+        if encrypted_json_match:
+            try:
+                encrypted_data = json.loads(encrypted_json_match.group(1))
+                decrypted_url = decrypt_bunkr_url(encrypted_data)
+                if decrypted_url:
+                    print(f"\t[DEBUG] Successfully decrypted URL: {decrypted_url}")
+                    return decrypted_url
+            except json.JSONDecodeError:
+                pass
+        
+        # Look for a content ID (UUID) in the page
+        content_id_match = re.search(r'/([a-f0-9-]{36})\.', r.text)
+        if content_id_match:
+            content_id = content_id_match.group(1)
+            # Determine a CDN domain from the page content (try wings, pizza, etc.)
+            domain_match = re.search(r'(wings|pizza|candy|cotton)\.bunkr\.ru', r.text)
+            domain = domain_match.group(0) if domain_match else 'pizza.bunkr.ru'
+            return f"https://{domain}/{content_id}.mp4"
+
+        # Look for direct CDN URLs in the HTML (for known domains)
+        cdn_url_match = re.search(r'https?://(?:wings|pizza|candy|cotton)\.bunkr\.ru/[^"\'<>\s]+', r.text)
+        if cdn_url_match:
+            return cdn_url_match.group(0)
+
+        # Fallback: look for download links in <a> tags
         soup = BeautifulSoup(r.content, 'html.parser')
-
-        # First try: search all <a> tags with the text exactly "Download"
         for a_tag in soup.find_all('a'):
-            if a_tag.string and a_tag.string.strip() == 'Download':
+            if a_tag.string and ('download' in a_tag.string.lower().strip() or a_tag.string.strip() == 'Download'):
                 href = a_tag.get('href')
                 if href and href != '#':
                     return href
-
-        # Second try: case-insensitive search for "download" in the text
-        for a_tag in soup.find_all('a'):
-            if a_tag.string and 'download' in a_tag.string.lower().strip():
-                href = a_tag.get('href')
-                if href and href != '#':
-                    return href
-
-        # Third try: use CSS selectors for any href starting with http
-        download_links = soup.select('a[href^="http"]')
-        if download_links:
-            for link in download_links:
-                candidate = link.get('href')
-                if candidate and ('bunkr' not in candidate.lower()):
-                    return candidate
-
-        # Fourth try: regex extraction from raw HTML for common extensions
-        cdn_urls = re.findall(r'href=[\'"]([^\'"]+\.(?:mp4|jpg|jpeg|png|gif|webm))[\'"]', r.text)
-        if cdn_urls:
-            return cdn_urls[0]
-
-        # Fifth try: scan the lines for a download link
-        lines = r.text.split("\n")
-        for line in lines:
-            if 'Download' in line and 'href=' in line:
-                match = re.search(r'href=[\'"]([^\'"]+)[\'"]', line)
-                if match:
-                    candidate = match.group(1)
-                    if candidate and candidate != '#':
-                        return candidate
-
-        # Sixth try: if file size is shown, get the next link
-        file_size_pattern = re.compile(r'\d+\.\d+\s*[MG]B')
-        for element in soup.find_all(text=file_size_pattern):
-            next_element = element.find_next('a')
-            if next_element and next_element.get('href'):
-                candidate = next_element.get('href')
-                if candidate and candidate != '#':
-                    return candidate
-
-        # Last resort: scan the entire text for any URL that likely is a CDN URL
-        all_urls = re.findall(r'(https?://[^\s"\'<>]+)', r.text)
-        for url in all_urls:
-            if ('cdn' in url.lower() or any(ext in url.lower() for ext in ['.mp4', '.jpg', '.jpeg', '.png', '.gif', '.webm'])):
-                return url
 
         print(f"\t\t[-] No download link found on page {download_page_url}")
         return None
