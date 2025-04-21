@@ -40,8 +40,14 @@ def get_items_list(session, url, retries, extensions, only_export, custom_path=N
             items.append(get_real_download_url(session, url, True))
         else:
             boxes = soup.find_all('a', {'class': 'after:absolute'})
+            base_url = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
             for box in boxes:
-                items.append({'url': box['href'], 'size': -1})
+                full_url = box['href']
+                if full_url.startswith('/'):
+                    full_url = base_url + full_url
+                    print(f"\t[+] Found item URL: {full_url}")
+                    items.append({'url': full_url, 'size': -1})
+
             
             album_name = soup.find('h1', {'class': 'truncate'}).text
             album_name = remove_illegal_chars(album_name)
@@ -54,13 +60,14 @@ def get_items_list(session, url, retries, extensions, only_export, custom_path=N
 
     download_path = get_and_prepare_download_path(custom_path, album_name)
     already_downloaded_url = get_already_downloaded_url(download_path)
-
+    
     for item in items:
         if not direct_link:
             item = get_real_download_url(session, item['url'], is_bunkr)
-            if item is None:
-                print(f"\t\t[-] Unable to find a download link")
+            if not item or not item.get('url') or not item['url'].startswith("http"):
+                print(f"\t\t[-] Skipping invalid item or missing URL: {item}")
                 continue
+
 
         extension = get_url_data(item['url'])['extension']
         if ((extension in extensions_list or len(extensions_list) == 0) and (item['url'] not in already_downloaded_url)):
@@ -82,54 +89,96 @@ def get_items_list(session, url, retries, extensions, only_export, custom_path=N
     print(f"\t[+] File list exported in {os.path.join(download_path, 'url_list.txt')}" if only_export else f"\t[+] Download completed")
     return
     
+# def get_real_download_url(session, url, is_bunkr=True):
+
+#     if is_bunkr:
+#         url = url if 'https' in url else f'https://bunkr.sk{url}'
+#     else:
+#         url = url.replace('/f/','/api/f/')
+
+#     r = session.get(url)
+#     if r.status_code != 200:
+#         print(f"\t[-] HTTP error {r.status_code} getting real url for {url}")
+#         return None
+           
+#     if is_bunkr:
+#         slug = re.search(r'\/f\/(.*?)$', url).group(1)
+#         return {'url': decrypt_encrypted_url(get_encryption_data(slug)), 'size': -1}
+#     else:
+#         item_data = json.loads(r.content)
+#         return {'url': item_data['url'], 'size': -1, 'name': item_data['name']}
+
 def get_real_download_url(session, url, is_bunkr=True):
+    if not is_bunkr:
+        url = url.replace('/f/', '/api/f/')
+    elif url.endswith(('.jpg', '.jpeg', '.png', '.mp4', '.webm', '.gif')):  # Direct file, return it
+        return {'url': url, 'size': -1}
 
     if is_bunkr:
         url = url if 'https' in url else f'https://bunkr.sk{url}'
-    else:
-        url = url.replace('/f/','/api/f/')
 
     r = session.get(url)
     if r.status_code != 200:
         print(f"\t[-] HTTP error {r.status_code} getting real url for {url}")
         return None
-           
+
     if is_bunkr:
-        slug = re.search(r'\/f\/(.*?)$', url).group(1)
-        return {'url': decrypt_encrypted_url(get_encryption_data(slug)), 'size': -1}
+        slug_match = re.search(r'/f/([^/]+)$', url)
+        if not slug_match:
+            print(f"\t[-] Failed to extract slug from: {url}")
+            return None
+        slug = slug_match.group(1)
+
+        decrypted_url = decrypt_encrypted_url(get_encryption_data(slug))
+        if decrypted_url and decrypted_url.startswith("http"):
+            return {'url': decrypted_url, 'size': -1}
+        else:
+            print(f"\t[-] Failed to decrypt a proper URL from: {url}")
+            return None
     else:
         item_data = json.loads(r.content)
         return {'url': item_data['url'], 'size': -1, 'name': item_data['name']}
 
+
+
+import requests
+import os
+from tqdm import tqdm
+
 def download(session, item_url, download_path, is_bunkr=False, file_name=None):
+    try:
+        file_name = get_url_data(item_url)['file_name'] if file_name is None else file_name
+        final_path = os.path.join(download_path, file_name)
 
-    file_name = get_url_data(item_url)['file_name'] if file_name is None else file_name
-    final_path = os.path.join(download_path, file_name)
+        with session.get(item_url, stream=True, timeout=30) as r:
+            if r.status_code != 200:
+                print(f"\t[-] Error downloading \"{file_name}\": {r.status_code}")
+                return
+            if r.url == "https://bnkr.b-cdn.net/maintenance.mp4":
+                print(f"\t[-] Error downloading \"{file_name}\": Server is down for maintenance")
+                return  # Ensure we exit after detecting maintenance mode
 
-    with session.get(item_url, stream=True, timeout=5) as r:
-        if r.status_code != 200:
-            print(f"\t[-] Error downloading \"{file_name}\": {r.status_code}")
-            return
-        if r.url == "https://bnkr.b-cdn.net/maintenance.mp4":
-            print(f"\t[-] Error downloading \"{file_name}\": Server is down for maintenance")
+            file_size = int(r.headers.get('content-length', -1))
+            with open(final_path, 'wb') as f:
+                with tqdm(total=file_size, unit='iB', unit_scale=True, desc=file_name, leave=False) as pbar:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                            pbar.update(len(chunk))
 
-        file_size = int(r.headers.get('content-length', -1))
-        with open(final_path, 'wb') as f:
-            with tqdm(total=file_size, unit='iB', unit_scale=True, desc=file_name, leave=False) as pbar:
-                for chunk in r.iter_content(chunk_size=8192):
-                    if chunk is not None:
-                        f.write(chunk)
-                        pbar.update(len(chunk))
+        if is_bunkr and file_size > -1:
+            downloaded_file_size = os.stat(final_path).st_size
+            if downloaded_file_size != file_size:
+                print(f"\t[-] {file_name} size check failed, file could be broken\n")
+                return
 
-    if is_bunkr and file_size > -1:
-        downloaded_file_size = os.stat(final_path).st_size
-        if downloaded_file_size != file_size:
-            print(f"\t[-] {file_name} size check failed, file could be broken\n")
-            return
+        mark_as_downloaded(item_url, download_path)
 
-    mark_as_downloaded(item_url, download_path)
+    except requests.exceptions.ReadTimeout:
+        print(f"\t[-] Skipping \"{file_name}\": Read timed out.")
+    except requests.exceptions.RequestException as e:
+        print(f"\t[-] Error downloading \"{file_name}\": {e}")
 
-    return
 
 def create_session():
     session = requests.Session()
@@ -199,17 +248,29 @@ def get_encryption_data(slug=None):
     return json.loads(r.content)
 
 def decrypt_encrypted_url(encryption_data):
+    if (
+        encryption_data is None or
+        'url' not in encryption_data or
+        'timestamp' not in encryption_data
+    ):
+        print("\t\t[-] Invalid encryption data, skipping decryption.")
+        return None
 
-    secret_key = f"{SECRET_KEY_BASE}{floor(encryption_data['timestamp'] / 3600)}"
-    encrypted_url_bytearray = list(b64decode(encryption_data['url']))
-    secret_key_byte_array = list(secret_key.encode('utf-8'))
+    try:
+        secret_key = f"{SECRET_KEY_BASE}{floor(encryption_data['timestamp'] / 3600)}"
+        encrypted_url_bytearray = list(b64decode(encryption_data['url']))
+        secret_key_byte_array = list(secret_key.encode('utf-8'))
 
-    decrypted_url = ""
+        decrypted_url = ""
 
-    for i in range(len(encrypted_url_bytearray)):
-        decrypted_url += chr(encrypted_url_bytearray[i] ^ secret_key_byte_array[i % len(secret_key_byte_array)])
+        for i in range(len(encrypted_url_bytearray)):
+            decrypted_url += chr(encrypted_url_bytearray[i] ^ secret_key_byte_array[i % len(secret_key_byte_array)])
 
-    return decrypted_url
+        return decrypted_url
+    except Exception as e:
+        print(f"\t\t[-] Error during decryption: {e}")
+        return None
+
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(sys.argv[1:])
