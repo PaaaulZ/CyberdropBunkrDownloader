@@ -1,10 +1,10 @@
-import time
 import requests
 import json
 import argparse
 import sys
 import os
 import re
+from tenacity import retry, wait_fixed, retry_if_exception_type, stop_after_attempt
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from tqdm import tqdm
@@ -14,7 +14,9 @@ from math import floor
 BUNKR_VS_API_URL_FOR_SLUG = "https://bunkr.cr/api/vs"
 SECRET_KEY_BASE = "SECRET_KEY_"
 
-def get_items_list(session, url, retries, extensions, only_export, custom_path=None):
+MAX_RETRIES=10
+
+def get_items_list(session, url, extensions, only_export, custom_path=None):
     extensions_list = extensions.split(',') if extensions is not None else []
        
     r = session.get(url)
@@ -39,9 +41,10 @@ def get_items_list(session, url, retries, extensions, only_export, custom_path=N
             album_name = remove_illegal_chars(album_name.text)
             items.append(get_real_download_url(session, url, True))
         else:
-            boxes = soup.find_all('a', {'class': 'after:absolute'})
-            for box in boxes:
-                items.append({'url': box['href'], 'size': -1})
+            theItems = soup.find_all('div', {'class': 'theItem'})
+            for theItem in theItems:
+                box = theItem.find('a', {'class': 'after:absolute'})
+                items.append({'url': box['href'], 'size': -1, 'name': theItem.find('p').text})
             
             album_name = soup.find('h1', {'class': 'truncate'}).text
             album_name = remove_illegal_chars(album_name)
@@ -57,7 +60,7 @@ def get_items_list(session, url, retries, extensions, only_export, custom_path=N
 
     for item in items:
         if not direct_link:
-            item = get_real_download_url(session, item['url'], is_bunkr)
+            item = get_real_download_url(session, item['url'], is_bunkr, item['name'])
             if item is None:
                 print(f"\t\t[-] Unable to find a download link")
                 continue
@@ -67,22 +70,12 @@ def get_items_list(session, url, retries, extensions, only_export, custom_path=N
             if only_export:
                 write_url_to_list(item['url'], download_path)
             else:
-                for i in range(1, retries + 1):
-                    try:
-                        print(f"\t[+] Downloading {item['url']} (try {i}/{retries})")
-                        download(session, item['url'], download_path, is_bunkr, item['name'] if not is_bunkr else None)
-                        break
-                    except requests.exceptions.ConnectionError as e:
-                        if i < retries:
-                            time.sleep(2)
-                            pass
-                        else:
-                            raise e
+                download(session, item['url'], download_path, is_bunkr, item['name'])
 
     print(f"\t[+] File list exported in {os.path.join(download_path, 'url_list.txt')}" if only_export else f"\t[+] Download completed")
     return
     
-def get_real_download_url(session, url, is_bunkr=True):
+def get_real_download_url(session, url, is_bunkr=True, item_name=None):
 
     if is_bunkr:
         url = url if 'https' in url else f'https://bunkr.sk{url}'
@@ -96,17 +89,19 @@ def get_real_download_url(session, url, is_bunkr=True):
            
     if is_bunkr:
         slug = re.search(r'\/f\/(.*?)$', url).group(1)
-        return {'url': decrypt_encrypted_url(get_encryption_data(slug)), 'size': -1}
+        return {'url': decrypt_encrypted_url(get_encryption_data(slug)), 'size': -1, 'name': item_name}
     else:
         item_data = json.loads(r.content)
         return {'url': item_data['url'], 'size': -1, 'name': item_data['name']}
-
+    
+@retry(retry=retry_if_exception_type(requests.exceptions.ConnectionError), wait=wait_fixed(2), stop=stop_after_attempt(MAX_RETRIES))
 def download(session, item_url, download_path, is_bunkr=False, file_name=None):
 
     file_name = get_url_data(item_url)['file_name'] if file_name is None else file_name
     final_path = os.path.join(download_path, file_name)
 
     with session.get(item_url, stream=True, timeout=5) as r:
+        print(f"\t[+] Downloading {item_url} ({file_name})")
         if r.status_code != 200:
             print(f"\t[-] Error downloading \"{file_name}\": {r.status_code}")
             return
@@ -233,13 +228,15 @@ if __name__ == '__main__':
 
     session = create_session()
 
+    MAX_RETRIES = args.r
+
     if args.f is not None:
         with open(args.f, 'r', encoding='utf-8') as f:
             urls = f.read().splitlines()
         for url in urls:
             print(f"\t[-] Processing \"{url}\"...")
-            get_items_list(session, url, args.r, args.e, args.w, args.p)
+            get_items_list(session, url, args.e, args.w, args.p)
         sys.exit(0)
     else:
-        get_items_list(session, args.u, args.r, args.e, args.w, args.p)
+        get_items_list(session, args.u, args.e, args.w, args.p)
     sys.exit(0)
