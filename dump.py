@@ -107,6 +107,7 @@ def download(session, item_url, download_path, is_bunkr=False, file_name=None):
             return
         if r.url == "https://bnkr.b-cdn.net/maintenance.mp4":
             print(f"\t[-] Error downloading \"{file_name}\": Server is down for maintenance")
+            return
 
         file_size = int(r.headers.get('content-length', -1))
         with open(final_path, 'wb') as f:
@@ -149,8 +150,7 @@ def get_and_prepare_download_path(custom_path, album_name):
 
     already_downloaded_path = os.path.join(final_path, 'already_downloaded.txt')
     if not os.path.isfile(already_downloaded_path):
-        with open(already_downloaded_path, 'x', encoding='utf-8'):
-            pass
+        open(already_downloaded_path, 'w', encoding='utf-8').close()
 
     return final_path
 
