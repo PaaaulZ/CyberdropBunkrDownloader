@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from tqdm import tqdm
 from base64 import b64decode
 from math import floor
+from urllib.parse import unquote
 
 BUNKR_VS_API_URL_FOR_SLUG = "https://bunkr.cr/api/vs"
 SECRET_KEY_BASE = "SECRET_KEY_"
@@ -88,12 +89,13 @@ def get_real_download_url(session, url, is_bunkr=True, item_name=None):
         return None
            
     if is_bunkr:
-        slug = re.search(r'\/f\/(.*?)$', url).group(1)
+        slug = unquote(re.search(r'\/f\/(.*?)$', url).group(1))
+        decrypted_url = decrypt_encrypted_url(get_encryption_data(slug))
         return {'url': decrypt_encrypted_url(get_encryption_data(slug)), 'size': -1, 'name': item_name}
     else:
         item_data = json.loads(r.content)
         return {'url': item_data['url'], 'size': -1, 'name': item_data['name']}
-    
+        
 @retry(retry=retry_if_exception_type(requests.exceptions.ConnectionError), wait=wait_fixed(2), stop=stop_after_attempt(MAX_RETRIES))
 def download(session, item_url, download_path, is_bunkr=False, file_name=None):
 
@@ -239,4 +241,5 @@ if __name__ == '__main__':
         sys.exit(0)
     else:
         get_items_list(session, args.u, args.e, args.w, args.p)
+        
     sys.exit(0)
