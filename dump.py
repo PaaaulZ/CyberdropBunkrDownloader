@@ -17,7 +17,7 @@ SECRET_KEY_BASE = "SECRET_KEY_"
 
 MAX_RETRIES=10
 
-def get_items_list(session, url, extensions, only_export, custom_path=None):
+def get_items_list(session, url, extensions, only_export, custom_path=None, is_last_page=True):
     extensions_list = extensions.split(',') if extensions is not None else []
        
     r = session.get(url)
@@ -72,8 +72,24 @@ def get_items_list(session, url, extensions, only_export, custom_path=None):
                 write_url_to_list(item['url'], download_path)
             else:
                 download(session, item['url'], download_path, is_bunkr, item['name'])
+        
+    pagination = soup.find('nav', {'class': 'pagination'})
+    if pagination is not None:
+        current_page = int(pagination.find('span', {'class': 'active'}).text)
+        last_page = int(pagination.find_all('a')[-2].text)
 
-    print(f"\t[+] File list exported in {os.path.join(download_path, 'url_list.txt')}" if only_export else f"\t[+] Download completed")
+        if int(current_page) < int(last_page):
+            url_next_page = None
+            print(f"[!] Downloading page ({int(current_page)+1}/{last_page})")
+            if re.search(r'([?&])page=\d+', url):
+                url_next_page = re.sub(r'([?&])page=\d+', r'\1page={}'.format(current_page+1), url)
+            else:
+                url_next_page = f"{url}{'&' if '?' in url else '?'}page={(current_page+1)}"
+        
+            get_items_list(session, url_next_page, extensions, only_export, custom_path, (int(current_page) == int(last_page)))
+
+    if is_last_page:
+        print(f"\t[+] File list exported in {os.path.join(download_path, 'url_list.txt')}" if only_export else f"\t[+] Download completed")
     return
     
 def get_real_download_url(session, url, is_bunkr=True, item_name=None):
