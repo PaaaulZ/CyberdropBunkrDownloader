@@ -11,13 +11,14 @@ from tqdm import tqdm
 from base64 import b64decode
 from math import floor
 from urllib.parse import unquote
+from datetime import datetime
 
 BUNKR_VS_API_URL_FOR_SLUG = "https://bunkr.cr/api/vs"
 SECRET_KEY_BASE = "SECRET_KEY_"
 
 MAX_RETRIES=10
 
-def get_items_list(session, url, extensions, only_export, custom_path=None, is_last_page=True):
+def get_items_list(session, url, extensions, only_export, custom_path=None, is_last_page=True, date_before=None, date_after=None):
     extensions_list = extensions.split(',') if extensions is not None else []
        
     r = session.get(url)
@@ -44,6 +45,10 @@ def get_items_list(session, url, extensions, only_export, custom_path=None, is_l
         else:
             theItems = soup.find_all('div', {'class': 'theItem'})
             for theItem in theItems:
+                if date_before is not None or date_after is not None:
+                    date_span = theItem.find('span', {'class': 'ic-clock'})
+                    if not is_date_in_range(date_span.text, date_before, date_after):
+                        continue
                 box = theItem.find('a', {'class': 'after:absolute'})
                 items.append({'url': box['href'], 'size': -1, 'name': theItem.find('p').text})
             
@@ -86,7 +91,7 @@ def get_items_list(session, url, extensions, only_export, custom_path=None, is_l
             else:
                 url_next_page = f"{url}{'&' if '?' in url else '?'}page={(current_page+1)}"
         
-            get_items_list(session, url_next_page, extensions, only_export, custom_path, (int(current_page) == int(last_page)))
+            get_items_list(session, url_next_page, extensions, only_export, cumstom_path=custom_path, is_last_page=(int(current_page) == int(last_page)), date_before=args.before, date_after=args.after)
 
     if is_last_page:
         print(f"\t[+] File list exported in {os.path.join(download_path, 'url_list.txt')}" if only_export else f"\t[+] Download completed")
@@ -223,6 +228,24 @@ def decrypt_encrypted_url(encryption_data):
         decrypted_url += chr(encrypted_url_bytearray[i] ^ secret_key_byte_array[i % len(secret_key_byte_array)])
 
     return decrypted_url
+
+def date_argument(date_string):
+    try:
+        return datetime.strptime(date_string, '%Y-%m-%dT%H:%M:%S')
+    except ValueError:
+        raise argparse.ArgumentTypeError("Invalid date format. Use: yyyy-mm-ddThh:mm:ss")
+    
+def is_date_in_range(date_string, date_before, date_after):
+    try:
+        bunkr_date = datetime.strptime(date_string, '%H:%M:%S %d/%m/%Y')
+        date_before = datetime.max if date_before is None else date_before
+        date_after = datetime.min if date_after is None else date_after
+
+        return bunkr_date <= date_before and bunkr_date >= date_after
+
+    except ValueError:
+        print(f"\t[-] Invalid file date {date_string}")
+        return False
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(sys.argv[1:])
@@ -232,6 +255,8 @@ if __name__ == '__main__':
     parser.add_argument("-e", help="Extensions to download (comma separated)", type=str)
     parser.add_argument("-p", help="Path to custom downloads folder")
     parser.add_argument("-w", help="Export url list (ex: for wget)", action="store_true")
+    parser.add_argument("--before", help="Export only files before this date", type=date_argument, default=None)
+    parser.add_argument("--after", help="Export only files after this date", type=date_argument, default=None)
 
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding='utf-8')
@@ -253,9 +278,9 @@ if __name__ == '__main__':
             urls = f.read().splitlines()
         for url in urls:
             print(f"\t[-] Processing \"{url}\"...")
-            get_items_list(session, url, args.e, args.w, args.p)
+            get_items_list(session, url, args.e, args.w, args.p, date_before=args.before, date_after=args.after)
         sys.exit(0)
     else:
-        get_items_list(session, args.u, args.e, args.w, args.p)
+        get_items_list(session, args.u, args.e, args.w, args.p, date_before=args.before, date_after=args.after)
         
     sys.exit(0)
