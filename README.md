@@ -24,4 +24,6 @@ optional arguments:
   -p P        Path to custom downloads folder
   -w          Export url list (ex: for wget)
   -css        Check server status before downloading
+  --before    Export only files before this date (format yyyy-mm-ddThh:mm:ss es: 2025-01-02T00:01:02)
+  --after     Export only files after this date (format yyyy-mm-ddThh:mm:ss es: 2025-01-02T00:01:02)
   ```
