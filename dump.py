@@ -91,7 +91,7 @@ def get_items_list(session, url, extensions, only_export, custom_path=None, is_l
             else:
                 url_next_page = f"{url}{'&' if '?' in url else '?'}page={(current_page+1)}"
         
-            get_items_list(session, url_next_page, extensions, only_export, cumstom_path=custom_path, is_last_page=(int(current_page) == int(last_page)), date_before=args.before, date_after=args.after)
+            get_items_list(session, url_next_page, extensions, only_export, custom_path=custom_path, is_last_page=(int(current_page) == int(last_page)), date_before=args.before, date_after=args.after)
 
     if is_last_page:
         print(f"\t[+] File list exported in {os.path.join(download_path, 'url_list.txt')}" if only_export else f"\t[+] Download completed")
