@@ -19,8 +19,6 @@ SECRET_KEY_BASE = "SECRET_KEY_"
 
 MAX_RETRIES=10
 
-from pathlib import Path
-
 def auto_rename(path: Path) -> Path:
     if not path.exists():
         return path
@@ -305,3 +303,4 @@ if __name__ == '__main__':
         get_items_list(session, args.u, args.e, args.w, args.p, date_before=args.before, date_after=args.after)
         
     sys.exit(0)
+
