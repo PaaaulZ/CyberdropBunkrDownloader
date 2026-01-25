@@ -12,11 +12,31 @@ from base64 import b64decode
 from math import floor
 from urllib.parse import unquote
 from datetime import datetime
+from pathlib import Path
 
 BUNKR_VS_API_URL_FOR_SLUG = "https://bunkr.cr/api/vs"
 SECRET_KEY_BASE = "SECRET_KEY_"
 
 MAX_RETRIES=10
+
+from pathlib import Path
+
+def auto_rename(path: Path) -> Path:
+    if not path.exists():
+        return path
+
+    stem = path.stem
+    suffix = path.suffix
+    parent = path.parent
+
+    counter = 1
+    new_path = parent / f"{stem} ({counter}){suffix}"
+
+    while new_path.exists():
+        counter += 1
+        new_path = parent / f"{stem} ({counter}){suffix}"
+
+    return new_path
 
 def get_items_list(session, url, extensions, only_export, custom_path=None, is_last_page=True, date_before=None, date_after=None):
     extensions_list = extensions.split(',') if extensions is not None else []
@@ -121,7 +141,8 @@ def get_real_download_url(session, url, is_bunkr=True, item_name=None):
 def download(session, item_url, download_path, is_bunkr=False, file_name=None):
 
     file_name = get_url_data(item_url)['file_name'] if file_name is None else file_name
-    final_path = os.path.join(download_path, file_name)
+    final_path = Path(os.path.join(download_path, file_name))        
+    final_path = auto_rename(final_path)
 
     with session.get(item_url, stream=True, timeout=5) as r:
         print(f"\t[+] Downloading {item_url} ({file_name})")
