@@ -17,13 +17,26 @@ from datetime import datetime
 BUNKR_VS_API_URL_FOR_SLUG = "https://bunkr.cr/api/vs"
 SECRET_KEY_BASE = "SECRET_KEY_"
 
-MAX_RETRIES=10
+MAX_RETRIES = 10
+ERRORS_FILE = False
+ERRORS_PATH = None
+
+def log_error(error_message, error_type="GENERIC"):
+    """log errors into the errors file if enabled"""
+    if ERRORS_FILE:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if ERRORS_PATH is None: return
+        with open(ERRORS_PATH, 'a', encoding='utf-8') as f:
+            f.write(f"[{timestamp}] [{error_type}] {error_message}\n")
 
 def get_items_list(session, url, extensions, only_export, custom_path=None, is_last_page=True, date_before=None, date_after=None):
+    global ERRORS_PATH
+
     extensions_list = extensions.split(',') if extensions is not None else []
        
     r = session.get(url)
     if r.status_code != 200:
+        log_error(f"HTTP error {r.status_code} for URL: {url}")
         raise Exception(f"[-] HTTP error {r.status_code}")
 
     soup = BeautifulSoup(r.content, 'html.parser')
@@ -62,6 +75,7 @@ def get_items_list(session, url, extensions, only_export, custom_path=None, is_l
             items.append({'url': f"https://cyberdrop.me{item_dom['href']}", 'size': -1})
         album_name = remove_illegal_chars(soup.find('h1', {'id': 'title'}).text)
 
+    ERRORS_PATH = os.path.join("Downloads" if not custom_path else custom_path, album_name, "errors.txt")
     download_path = get_and_prepare_download_path(custom_path, album_name)
     already_downloaded_url = get_already_downloaded_url(download_path)
 
@@ -70,6 +84,7 @@ def get_items_list(session, url, extensions, only_export, custom_path=None, is_l
             item = get_real_download_url(session, item['url'], is_bunkr, item['name'])
             if item is None:
                 print(f"\t\t[-] Unable to find a download link")
+                log_error("Unable to find download link for item", "DOWNLOAD_LINK_ERROR")
                 continue
 
         extension = get_url_data(item['url'])['extension']
@@ -108,15 +123,28 @@ def get_real_download_url(session, url, is_bunkr=True, item_name=None):
     r = session.get(url)
     if r.status_code != 200:
         print(f"\t[-] HTTP error {r.status_code} getting real url for {url}")
+        log_error(f"unable to get real URL for {url} due to HTTP error {r.status_code}")
         return None
            
     if is_bunkr:
-        slug = unquote(re.search(r'\/f\/(.*?)$', url).group(1))
-        decrypted_url = decrypt_encrypted_url(get_encryption_data(slug))
-        return {'url': decrypt_encrypted_url(get_encryption_data(slug)), 'size': -1, 'name': item_name}
+        try:
+            slug = unquote(re.search(r'\/f\/(.*?)$', url).group(1))
+            decrypted_url = decrypt_encrypted_url(get_encryption_data(slug))
+            return {'url': decrypted_url, 'size': -1, 'name': item_name}
+        except Exception as e:
+            error_msg = f"Error decrypting URL {url}: {str(e)}"
+            print(f"\t[-] {error_msg}")
+            log_error(error_msg, "DECRYPTION_ERROR")
+            return None
     else:
-        item_data = json.loads(r.content)
-        return {'url': item_data['url'], 'size': -1, 'name': item_data['name']}
+        try:
+            item_data = json.loads(r.content)
+            return {'url': item_data['url'], 'size': -1, 'name': item_data['name']}
+        except Exception as e:
+            error_msg = f"Error parsing JSON for {url}: {str(e)}"
+            print(f"\t[-] {error_msg}")
+            log_error(error_msg, "JSON_PARSE_ERROR")
+            return None
         
 @retry(retry=retry_if_exception_type(requests.exceptions.ConnectionError), wait=wait_fixed(2), stop=stop_after_attempt(MAX_RETRIES))
 def download(session, item_url, download_path, is_bunkr=False, file_name=None):
@@ -127,30 +155,47 @@ def download(session, item_url, download_path, is_bunkr=False, file_name=None):
 
     final_path = os.path.join(download_path, file_name)
 
-    with session.get(item_url, stream=True, timeout=5) as r:
-        print(f"\t[+] Downloading {item_url} ({file_name})")
-        if r.status_code != 200:
-            print(f"\t[-] Error downloading \"{file_name}\": {r.status_code}")
-            return
-        if r.url == "https://bnkr.b-cdn.net/maintenance.mp4":
-            print(f"\t[-] Error downloading \"{file_name}\": Server is down for maintenance")
-            return
+    try:
+        with session.get(item_url, stream=True, timeout=5) as r:
+            print(f"\t[+] Downloading {item_url} ({file_name})")
+            if r.status_code != 200:
+                error_message = f"\t[-] Error downloading \"{file_name}\": {r.status_code}"
+                print(error_message)
+                log_error(f"{error_message}, with URL: {url}", "DOWNLOAD_HTTP_ERROR")
+                return
+            if r.url == "https://bnkr.b-cdn.net/maintenance.mp4":
+                error_message = f"\t[-] Error downloading \"{file_name}\": Server is down for maintenance"
+                print(error_message)
+                log_error(f"{error_message}, with URL: {url}", "MAINTENANCE")
+                return
 
-        file_size = int(r.headers.get('content-length', -1))
-        with open(final_path, 'wb') as f:
-            with tqdm(total=file_size, unit='iB', unit_scale=True, desc=file_name, leave=False) as pbar:
-                for chunk in r.iter_content(chunk_size=8192):
-                    if chunk is not None:
-                        f.write(chunk)
-                        pbar.update(len(chunk))
+            file_size = int(r.headers.get('content-length', -1))
+            with open(final_path, 'wb') as f:
+                with tqdm(total=file_size, unit='iB', unit_scale=True, desc=file_name, leave=False) as pbar:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        if chunk is not None:
+                            f.write(chunk)
+                            pbar.update(len(chunk))
 
-    if is_bunkr and file_size > -1:
-        downloaded_file_size = os.stat(final_path).st_size
-        if downloaded_file_size != file_size:
-            print(f"\t[-] {file_name} size check failed, file could be broken\n")
-            return
+        if is_bunkr and file_size > -1:
+            downloaded_file_size = os.stat(final_path).st_size
+            if downloaded_file_size != file_size:
+                print(f"\t[-] {file_name} size check failed, file could be broken\n")
+                log_error(f"Size check failed with file {file_name}, with URL: {item_url}", "SIZE_MISMATCH")
+                return 
 
-    mark_as_downloaded(item_url, download_path)
+        mark_as_downloaded(item_url, download_path)
+
+    except requests.exceptions.Timeout:
+        print(f"\t[-] Timeout downloading \"{file_name}\"")
+        log_error(f"Timeout when downloading {file_name}, with URL: {item_url}", "TIMEOUT_ERROR")
+    except requests.exceptions.ConnectionError as e:
+        print(f"\t[-] Connection error downloading \"{file_name}\"")
+        log_error(f"Connection error when downloading {file_name}, with URL: {item_url}, error: {str(e)}", "CONNECTION_ERROR")
+        raise  # Re-raise for the retry process
+    except Exception as e:
+        print(f"\t[-] Unexpected error downloading \"{file_name}\"")
+        log_error(f"Unexpected error when downloading {file_name}, with URL: {item_url}, error: {str(e)}", "DOWNLOAD_EXCEPTION")
 
     return
 
@@ -216,22 +261,28 @@ def get_encryption_data(slug=None):
     r = session.post(BUNKR_VS_API_URL_FOR_SLUG, json={'slug': slug})
     if r.status_code != 200:
         print(f"\t\t[-] HTTP ERROR {r.status_code} getting encryption data")
+        log_error(f"HTTP ERROR with getting encryption data: {r.status_code}", "ENCRYPTION_DATA_EXCEPTION")
         return None
     
     return json.loads(r.content)
 
 def decrypt_encrypted_url(encryption_data):
 
-    secret_key = f"{SECRET_KEY_BASE}{floor(encryption_data['timestamp'] / 3600)}"
-    encrypted_url_bytearray = list(b64decode(encryption_data['url']))
-    secret_key_byte_array = list(secret_key.encode('utf-8'))
+    try:
+        secret_key = f"{SECRET_KEY_BASE}{floor(encryption_data['timestamp'] / 3600)}"
+        encrypted_url_bytearray = list(b64decode(encryption_data['url']))
+        secret_key_byte_array = list(secret_key.encode('utf-8'))
 
-    decrypted_url = ""
+        decrypted_url = ""
 
-    for i in range(len(encrypted_url_bytearray)):
-        decrypted_url += chr(encrypted_url_bytearray[i] ^ secret_key_byte_array[i % len(secret_key_byte_array)])
+        for i in range(len(encrypted_url_bytearray)):
+            decrypted_url += chr(encrypted_url_bytearray[i] ^ secret_key_byte_array[i % len(secret_key_byte_array)])
 
-    return decrypted_url
+        return decrypted_url
+    except Exception as e:
+        print(f"\t\t[-] Exception decrypting an URL")
+        log_error(f"Exception when decrypting an URL: {str(e)}", "DECRYPTION_EXCEPTION")
+        return None
 
 def date_argument(date_string):
     try:
@@ -249,6 +300,7 @@ def is_date_in_range(date_string, date_before, date_after):
 
     except ValueError:
         print(f"\t[-] Invalid file date {date_string}")
+        log_error(f"Invalid file date {date_string}", "DATE_PARSE_ERROR")
         return False
     
 if __name__ == '__main__':
@@ -259,8 +311,10 @@ if __name__ == '__main__':
     parser.add_argument("-e", help="Extensions to download (comma separated)", type=str)
     parser.add_argument("-p", help="Path to custom downloads folder")
     parser.add_argument("-w", help="Export url list (ex: for wget)", action="store_true")
+    
     parser.add_argument("--before", help="Export only files before this date", type=date_argument, default=None)
     parser.add_argument("--after", help="Export only files after this date", type=date_argument, default=None)
+    parser.add_argument("--errors", help="Export downloading's errors in a file named 'errors.txt, no parameters needed'", action="store_true")
 
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding='utf-8')
@@ -276,6 +330,7 @@ if __name__ == '__main__':
     session = create_session()
 
     MAX_RETRIES = args.r
+    ERRORS_FILE = args.errors
 
     if args.f is not None:
         with open(args.f, 'r', encoding='utf-8') as f:
