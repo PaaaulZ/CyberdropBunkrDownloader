@@ -81,7 +81,8 @@ def get_items_list(session, url, extensions, only_export, custom_path=None, is_l
     pagination = soup.find('nav', {'class': 'pagination'})
     if pagination is not None:
         current_page = int(pagination.find('span', {'class': 'active'}).text)
-        last_page = int(pagination.find_all('a')[-2].text)
+        page_links = [a for a in pagination.find_all('a') if a.text.strip().isdigit()]
+        last_page = int(page_links[-1].text) if page_links else current_page
 
         if int(current_page) < int(last_page):
             url_next_page = None
