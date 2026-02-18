@@ -4,6 +4,7 @@ import argparse
 import sys
 import os
 import re
+import time
 from tenacity import retry, wait_fixed, retry_if_exception_type, stop_after_attempt
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
@@ -121,6 +122,9 @@ def get_real_download_url(session, url, is_bunkr=True, item_name=None):
 def download(session, item_url, download_path, is_bunkr=False, file_name=None):
 
     file_name = get_url_data(item_url)['file_name'] if file_name is None else file_name
+    if os.path.exists(file_name):
+        file_name = f"{int(time.time())}_{file_name}"
+
     final_path = os.path.join(download_path, file_name)
 
     with session.get(item_url, stream=True, timeout=5) as r:
