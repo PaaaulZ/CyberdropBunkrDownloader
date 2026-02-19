@@ -112,7 +112,6 @@ def get_real_download_url(session, url, is_bunkr=True, item_name=None):
            
     if is_bunkr:
         slug = unquote(re.search(r'\/f\/(.*?)$', url).group(1))
-        decrypted_url = decrypt_encrypted_url(get_encryption_data(slug))
         return {'url': decrypt_encrypted_url(get_encryption_data(slug)), 'size': -1, 'name': item_name}
     else:
         item_data = json.loads(r.content)
@@ -130,10 +129,10 @@ def download(session, item_url, download_path, is_bunkr=False, file_name=None):
     with session.get(item_url, stream=True, timeout=5) as r:
         print(f"\t[+] Downloading {item_url} ({file_name})")
         if r.status_code != 200:
-            print(f"\t[-] Error downloading \"{file_name}\": {r.status_code}")
+            print(f"\t\t[-] Error downloading \"{file_name}\": {r.status_code}")
             return
         if r.url == "https://bnkr.b-cdn.net/maintenance.mp4":
-            print(f"\t[-] Error downloading \"{file_name}\": Server is down for maintenance")
+            print(f"\t\t[-] Error downloading \"{file_name}\": Server is down for maintenance")
             return
 
         file_size = int(r.headers.get('content-length', -1))
