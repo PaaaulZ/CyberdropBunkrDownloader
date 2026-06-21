@@ -68,9 +68,10 @@ def get_items_list(session, url, extensions, only_export, custom_path=None, is_l
     for item in items:
         if not direct_link:
             item = get_real_download_url(session, item['url'], is_bunkr, item['name'])
-            if item is None:
-                print(f"\t\t[-] Unable to find a download link")
-                continue
+
+        if item is None:
+            print(f"\t\t\t[-] Unable to find a download link")
+            continue
 
         extension = get_url_data(item['url'])['extension']
         if ((extension in extensions_list or len(extensions_list) == 0) and (item['url'] not in already_downloaded_url)):
@@ -108,7 +109,16 @@ def get_real_download_url(session, url, is_bunkr=True, item_name=None):
 
     r = session.get(url)
     if r.status_code != 200:
-        print(f"\t[-] HTTP error {r.status_code} getting real url for {url}")
+        print(f"\t\t[-] HTTP error {r.status_code} getting real url for {url}")
+        return None
+    
+    soup = BeautifulSoup(r.content, 'html.parser')
+    btnMaintenance = soup.find('button', {'title': 'Server under maintenance'})
+
+    if btnMaintenance is not None:
+        if item_name is None:
+            item_name = soup.find('title').text.replace(' | Bunkr', '').strip()
+        print(f"\t\t[-] Error downloading \"{item_name}\": Server is down for maintenance")
         return None
            
     if is_bunkr:
@@ -131,9 +141,6 @@ def download(session, item_url, download_path, is_bunkr=False, file_name=None):
         print(f"\t[+] Downloading {item_url} ({file_name})")
         if r.status_code != 200:
             print(f"\t\t[-] Error downloading \"{file_name}\": {r.status_code}")
-            return
-        if r.url == "https://bnkr.b-cdn.net/maintenance.mp4":
-            print(f"\t\t[-] Error downloading \"{file_name}\": Server is down for maintenance")
             return
 
         file_size = int(r.headers.get('content-length', -1))
