@@ -9,13 +9,14 @@ from tenacity import retry, wait_fixed, retry_if_exception_type, stop_after_atte
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from tqdm import tqdm
-from base64 import b64decode
-from math import floor
-from urllib.parse import unquote
+from urllib.parse import unquote, quote
 from datetime import datetime
 
-BUNKR_VS_API_URL_FOR_SLUG = "https://bunkr.cr/api/vs"
-SECRET_KEY_BASE = "SECRET_KEY_"
+# Bunkr no longer encrypts download URLs. The file page exposes a numeric file
+# id which is exchanged for the media location via the metadata endpoint, and
+# the media location is then signed by a separate signing service.
+BUNKR_METADATA_API_PATH = "/api/_001_v2"
+BUNKR_SIGN_SERVICE_URL = "https://glb-apisign.cdn.cr/sign"
 
 MAX_RETRIES=10
 
@@ -122,8 +123,14 @@ def get_real_download_url(session, url, is_bunkr=True, item_name=None):
         return None
            
     if is_bunkr:
-        slug = unquote(re.search(r'\/f\/(.*?)$', url).group(1))
-        return {'url': decrypt_encrypted_url(get_encryption_data(slug)), 'size': -1, 'name': item_name}
+        dl_page_url = get_bunkr_dl_page_url(soup)
+        if dl_page_url is None:
+            print(f"\t\t[-] Unable to find file id for {url}")
+            return None
+        real_url = get_bunkr_real_url(session, dl_page_url)
+        if real_url is None:
+            return None
+        return {'url': real_url['url'], 'size': -1, 'name': item_name if item_name is not None else real_url['name']}
     else:
         item_data = json.loads(r.content)
         return {'url': item_data['url'], 'size': -1, 'name': item_data['name']}
@@ -218,27 +225,55 @@ def mark_as_downloaded(item_url, download_path):
 def remove_illegal_chars(string):
     return re.sub(r'[<>:"/\\|?*\']|[\0-\31]', "-", string).strip()
 
-def get_encryption_data(slug=None):
+def get_bunkr_dl_page_url(soup):
 
-    r = session.post(BUNKR_VS_API_URL_FOR_SLUG, json={'slug': slug})
+    # Preferred: the download link on the file page, e.g.
+    # https://dl.bunkr.cr/file/60384290
+    dl_link = soup.find('a', href=re.compile(r'/file/\d+'))
+    if dl_link is not None:
+        return dl_link['href']
+
+    # Fallback: the file id is exposed on the last-visit script tag.
+    id_tag = soup.find(attrs={'data-file-id': True})
+    if id_tag is not None:
+        return f"https://dl.bunkr.cr/file/{id_tag['data-file-id']}"
+
+    return None
+
+def get_bunkr_real_url(session, dl_page_url):
+
+    parsed = urlparse(dl_page_url)
+    api_base = f"{parsed.scheme}://{parsed.netloc}"
+    file_id = os.path.basename(parsed.path)
+
+    r = session.post(f"{api_base}{BUNKR_METADATA_API_PATH}", json={'id': file_id})
     if r.status_code != 200:
-        print(f"\t\t[-] HTTP ERROR {r.status_code} getting encryption data")
+        print(f"\t\t[-] HTTP ERROR {r.status_code} getting download metadata")
         return None
-    
+
+    meta = json.loads(r.content)
+    media_path = meta['path']
+
+    signed = get_signed_params(session, unquote(urlparse(media_path).path))
+    if signed is None:
+        return None
+
+    real_url = f"{meta['mediafiles']}{media_path}"
+    query = f"token={signed['token']}&ex={signed['ex']}"
+    original_name = meta.get('original')
+    if original_name:
+        query = f"n={quote(original_name)}&{query}"
+
+    return {'url': f"{real_url}?{query}", 'name': original_name}
+
+def get_signed_params(session, path):
+
+    r = session.get(BUNKR_SIGN_SERVICE_URL, params={'path': path})
+    if r.status_code != 200:
+        print(f"\t\t[-] HTTP ERROR {r.status_code} signing download url")
+        return None
+
     return json.loads(r.content)
-
-def decrypt_encrypted_url(encryption_data):
-
-    secret_key = f"{SECRET_KEY_BASE}{floor(encryption_data['timestamp'] / 3600)}"
-    encrypted_url_bytearray = list(b64decode(encryption_data['url']))
-    secret_key_byte_array = list(secret_key.encode('utf-8'))
-
-    decrypted_url = ""
-
-    for i in range(len(encrypted_url_bytearray)):
-        decrypted_url += chr(encrypted_url_bytearray[i] ^ secret_key_byte_array[i % len(secret_key_byte_array)])
-
-    return decrypted_url
 
 def date_argument(date_string):
     try:
