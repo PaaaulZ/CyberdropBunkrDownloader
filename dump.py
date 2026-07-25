@@ -71,7 +71,7 @@ def get_items_list(session, url, extensions, only_export, custom_path=None, is_l
             continue
 
         extension = get_url_data(item['url'])['extension']
-        if ((extension in extensions_list or len(extensions_list) == 0) and (item['url'] not in already_downloaded_url)):
+        if ((extension in extensions_list or len(extensions_list) == 0) and (item['url'][:item['url'].index('?') if '?' in item['url'] else len(item['url'])] not in already_downloaded_url)):
             if only_export:
                 write_url_to_list(item['url'], download_path)
             else:
@@ -211,7 +211,7 @@ def mark_as_downloaded(item_url, download_path):
 
     file_path = os.path.join(download_path, 'already_downloaded.txt')
     with open(file_path, 'a', encoding='utf-8') as f:
-        f.write(f"{item_url}\n")
+        f.write(f"{item_url[:item_url.index('?') if '?' in item_url else len(item_url)]}\n")
 
     return
 
