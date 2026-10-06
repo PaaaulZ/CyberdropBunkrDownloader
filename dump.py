@@ -264,8 +264,8 @@ def is_date_in_range(date_string, date_before, date_after):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(sys.argv[1:])
     parser.add_argument("-u", help="Url to fetch", type=str, required=False, default=None)
-    parser.add_argument("-f", help="File to list of URLs to download", required=False, type=str, default=None)
-    parser.add_argument("-r", help="Amount of retries in case the connection fails", type=int, required=False, default=10)
+    parser.add_argument("-f", help="File containing list of URLs to download", required=False, type=str, default=None)
+    parser.add_argument("-r", help="Number of retries in case the connection fails", type=int, required=False, default=10)
     parser.add_argument("-e", help="Extensions to download (comma separated)", type=str)
     parser.add_argument("-p", help="Path to custom downloads folder")
     parser.add_argument("-w", help="Export url list (ex: for wget)", action="store_true")
