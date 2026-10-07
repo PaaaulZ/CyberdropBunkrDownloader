@@ -10,73 +10,135 @@ from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from tqdm import tqdm
 from datetime import datetime
+from enum import StrEnum
 
 BUNKR_SIGN_API_URL = "https://glb-apisign.cdn.cr/sign"
 BUNKR_METADATA_API_URL = "https://dl.bunkr.cr/api/_001_v2"
 
-MAX_RETRIES=10
+CYBERDROP_METADATA_API_URL_BASE = "https://api.cyberdrop.cr/api/file/info"
+CYBERDROP_AUTH_API_URL_BASE = "https://api.cyberdrop.cr/api/file/auth"
 
-def get_items_list(session, url, extensions, only_export, custom_path=None, is_last_page=True, date_before=None, date_after=None):
-    extensions_list = extensions.split(',') if extensions is not None else []
+MAX_RETRIES = 10
+
+class SUPPORTED_SITES(StrEnum):
+    BUNKR = 'bunkr'
+    CYBERDROP = 'cyberdrop'
+
+class Options:
+
+    extensions = []
+    only_export = False
+    custom_path = None
+    date_before = None
+    date_after = None
+
+    def __init__(self, extensions, only_export, custom_path, date_before, date_after):
+        self.extensions = extensions
+        self.only_export = only_export
+        self.custom_path = custom_path
+        self.date_before = date_before
+        self.date_after = date_after
+        return
+
+class UrlData:
+
+    file_name = None
+    file_extension = None
+    url_hostname = None
+
+    def __init__(self, url):
+        parsed_url = urlparse(url)
+        self.file_name = os.path.basename(parsed_url.path)
+        self.file_extension = os.path.splitext(parsed_url.path)[1]
+        self.url_hostname = parsed_url.hostname
+        return
+
+def bunkr_get_items(soup, session, url, is_direct_link, options):
+    items = []
+
+    if is_direct_link:
+        album_name = soup.find('h1', {'class': 'text-[20px]'})
+        if album_name is None:
+            album_name = soup.find('h1', {'class': 'truncate'})
+
+        album_name = remove_illegal_chars(album_name.text)
+        items.append(get_real_download_url(session, url, True))
+    else:
+        theItems = soup.find_all('div', {'class': 'theItem'})
+        for theItem in theItems:
+            if options.date_before is not None or options.date_after is not None:
+                date_span = theItem.find('span', {'class': 'ic-clock'})
+                if not is_date_in_range(date_span.text, options.date_before, options.date_after):
+                    continue
+
+            box = theItem.find('a', {'class': 'after:absolute'})
+            items.append({'url': box['href'], 'size': -1, 'name': theItem.find('p').text})
+
+    return items
+
+def cyberdrop_get_items(soup):
+    items = []
+
+    items_dom = soup.find_all('a', {'class': 'image'})
+    for item_dom in items_dom:
+        items.append({'url': f"https://cyberdrop.cr{item_dom['href']}", 'name': item_dom['data-src'], 'size': -1})
+
+    return items
+
+def prepare_download_items(items, session, is_direct_link, website, options, download_path, already_downloaded_url):
+    for item in items:
+        if not is_direct_link:
+            item = get_real_download_url(session, item['url'], website, item['name'])
+
+        if item is None:
+            print(f"\t\t\t[-] Unable to find a download link")
+            continue
+
+        url_data = UrlData(item['url'])
+
+        if ((url_data.file_extension in options.extensions or len(options.extensions) == 0) and (item['url'][:item['url'].index('?') if '?' in item['url'] else len(item['url'])] not in already_downloaded_url)):
+            if options.only_export:
+                write_url_to_list(item['url'], download_path)
+            else:
+                download(session, item['url'], download_path, website, item['name'])
+    return
+
+def get_website_from_page_title(page_title):
+    if "| Bunkr" in page_title:
+        return SUPPORTED_SITES.BUNKR
+    elif "| CyberDrop" in page_title:
+        return SUPPORTED_SITES.CYBERDROP
+
+    return None
+
+def get_items_list(session, url, options, is_last_page=True):
+    items = []
        
     r = session.get(url)
     if r.status_code != 200:
         raise Exception(f"[-] HTTP error {r.status_code}")
 
     soup = BeautifulSoup(r.content, 'html.parser')
-    is_bunkr = "| Bunkr" in soup.find('title').text
+    page_title = soup.find('title').text
 
-    direct_link = False
-    
-    if is_bunkr:
-        items = []
-        soup = BeautifulSoup(r.content, 'html.parser')
+    website = get_website_from_page_title(page_title)
 
-        direct_link = soup.find('span', {'class': 'ic-videos'}) is not None or soup.find('div', {'class': 'lightgallery'}) is not None
-        if direct_link:
-            album_name = soup.find('h1', {'class': 'text-[20px]'})
-            if album_name is None:
-                album_name = soup.find('h1', {'class': 'truncate'})
+    is_direct_link = soup.find('span', {'class': 'ic-videos'}) is not None or soup.find('div', {'class': 'lightgallery'}) is not None
 
-            album_name = remove_illegal_chars(album_name.text)
-            items.append(get_real_download_url(session, url, True))
-        else:
-            theItems = soup.find_all('div', {'class': 'theItem'})
-            for theItem in theItems:
-                if date_before is not None or date_after is not None:
-                    date_span = theItem.find('span', {'class': 'ic-clock'})
-                    if not is_date_in_range(date_span.text, date_before, date_after):
-                        continue
-                box = theItem.find('a', {'class': 'after:absolute'})
-                items.append({'url': box['href'], 'size': -1, 'name': theItem.find('p').text})
-            
-            album_name = soup.find('h1', {'class': 'truncate'}).text
-            album_name = remove_illegal_chars(album_name)
-    else:
-        items = []
-        items_dom = soup.find_all('a', {'class': 'image'})
-        for item_dom in items_dom:
-            items.append({'url': f"https://cyberdrop.me{item_dom['href']}", 'size': -1})
+    album_name = None
+
+    if website == SUPPORTED_SITES.BUNKR:
+        items = bunkr_get_items(soup, session, url, is_direct_link, options)
+        album_name = remove_illegal_chars(soup.find('h1', {'class': 'truncate'}).text)
+    elif website == SUPPORTED_SITES.CYBERDROP:
+        items = cyberdrop_get_items(soup)
         album_name = remove_illegal_chars(soup.find('h1', {'id': 'title'}).text)
 
-    download_path = get_and_prepare_download_path(custom_path, album_name)
-    already_downloaded_url = get_already_downloaded_url(download_path)
+    download_path = get_and_prepare_download_path(options.custom_path, album_name)
+    already_downloaded_url = get_already_downloaded_urls(download_path)
 
-    for item in items:
-        if not direct_link:
-            item = get_real_download_url(session, item['url'], is_bunkr, item['name'])
+    prepare_download_items(items, session, is_direct_link, website, options, download_path, already_downloaded_url)
 
-        if item is None:
-            print(f"\t\t\t[-] Unable to find a download link")
-            continue
-
-        extension = get_url_data(item['url'])['extension']
-        if ((extension in extensions_list or len(extensions_list) == 0) and (item['url'][:item['url'].index('?') if '?' in item['url'] else len(item['url'])] not in already_downloaded_url)):
-            if only_export:
-                write_url_to_list(item['url'], download_path)
-            else:
-                download(session, item['url'], download_path, is_bunkr, item['name'])
-        
     pagination = soup.find('nav', {'class': 'pagination'})
     if pagination is not None:
         current_page = int(pagination.find('span', {'class': 'active'}).text)
@@ -90,52 +152,74 @@ def get_items_list(session, url, extensions, only_export, custom_path=None, is_l
                 url_next_page = re.sub(r'([?&])page=\d+', r'\1page={}'.format(current_page+1), url)
             else:
                 url_next_page = f"{url}{'&' if '?' in url else '?'}page={(current_page+1)}"
-        
-            get_items_list(session, url_next_page, extensions, only_export, custom_path=custom_path, is_last_page=(int(current_page) == int(last_page)), date_before=args.before, date_after=args.after)
+
+            get_items_list(session, url_next_page, options, is_last_page=(int(current_page) == int(last_page)))
 
     if is_last_page:
-        print(f"\t[+] File list exported in {os.path.join(download_path, 'url_list.txt')}" if only_export else f"\t[+] Download completed")
+        print(f"\t[+] File list exported in {os.path.join(download_path, 'url_list.txt')}" if options.only_export else f"\t[+] Download completed")    
+
     return
-    
-def get_real_download_url(session, url, is_bunkr=True, item_name=None):
 
-    if is_bunkr:
-        url = url if 'https' in url else f'https://bunkr.sk{url}'
-    else:
-        url = url.replace('/f/','/api/f/')
-
-    r = session.get(url)
+def cyberdrop_get_metadata(slug, session):
+    r = session.get(f"{CYBERDROP_METADATA_API_URL_BASE}/{slug}")
     if r.status_code != 200:
-        print(f"\t\t[-] HTTP error {r.status_code} getting real url for {url}")
+        print(f"\t\t[-] HTTP error {r.status_code} getting metadata for item {slug}")
         return None
-    
-    soup = BeautifulSoup(r.content, 'html.parser')
-    btnMaintenance = soup.find('button', {'title': 'Server under maintenance'})
 
-    if btnMaintenance is not None:
-        if item_name is None:
-            item_name = soup.find('title').text.replace(' | Bunkr', '').strip()
-        print(f"\t\t[-] Error downloading \"{item_name}\": Server is down for maintenance")
+    return json.loads(r.content)
+
+def cyberdrop_get_real_url(slug, session):
+    r = session.get(f"{CYBERDROP_AUTH_API_URL_BASE}/{slug}")
+    if r.status_code != 200:
+        print(f"\t\t[-] HTTP error {r.status_code} getting real url for item {slug}")
         return None
-           
-    if is_bunkr:
-        real_url = get_bunkr_real_url(session, soup.find(attrs={'data-file-id': True})['data-file-id'])
+
+    signed_data = json.loads(r.content)
+
+    return signed_data['url']
+    
+def get_real_download_url(session, url, website, item_name=None):
+    if website == SUPPORTED_SITES.BUNKR:
+        url = url if 'https' in url else f'https://bunkr.sk{url}'
+
+        r = session.get(url)
+        if r.status_code != 200:
+            print(f"\t\t[-] HTTP error {r.status_code} getting real url for {url}")
+            return None
+        
+        soup = BeautifulSoup(r.content, 'html.parser')
+
+        btnMaintenance = soup.find('button', {'title': 'Server under maintenance'})
+
+        if btnMaintenance is not None:
+            if item_name is None:
+                item_name = soup.find('title').text.replace(' | Bunkr', '').strip()
+            print(f"\t\t[-] Error downloading \"{item_name}\": Server is down for maintenance")
+            return None
+        real_url = bunkr_get_real_url(session, soup.find(attrs={'data-file-id': True})['data-file-id'])
         if real_url is None:
             return None
         
         return {'url': real_url['url'], 'size': -1, 'name': item_name if item_name is not None else real_url['name']}
-    else:
-        item_data = json.loads(r.content)
-        return {'url': item_data['url'], 'size': -1, 'name': item_data['name']}
+    elif website == SUPPORTED_SITES.CYBERDROP:
+        slug = url.split('/')[-1]
+
+        real_url = cyberdrop_get_real_url(slug, session)
+        metadata = cyberdrop_get_metadata(slug, session)
+
+        return {'url': real_url, 'size': metadata['size'], 'name': metadata['name']}
         
 @retry(retry=retry_if_exception_type(requests.exceptions.ConnectionError), wait=wait_fixed(2), stop=stop_after_attempt(MAX_RETRIES))
-def download(session, item_url, download_path, is_bunkr=False, file_name=None):
+def download(session, item_url, download_path, website, file_name=None):
 
-    file_name = get_url_data(item_url)['file_name'] if file_name is None else file_name
-    if os.path.exists(file_name):
-        file_name = f"{int(time.time())}_{file_name}"
+    url_data = UrlData(item_url)
+    file_name = url_data.file_name if file_name is None else file_name
 
     final_path = os.path.join(download_path, file_name)
+
+    if os.path.exists(final_path):
+        file_name = f"{int(time.time())}_{file_name}"
+
 
     with session.get(item_url, stream=True, timeout=5) as r:
         print(f"\t[+] Downloading {item_url} ({file_name})")
@@ -151,13 +235,13 @@ def download(session, item_url, download_path, is_bunkr=False, file_name=None):
                         f.write(chunk)
                         pbar.update(len(chunk))
 
-    if is_bunkr and file_size > -1:
+    if website == SUPPORTED_SITES.BUNKR and file_size > -1:
         downloaded_file_size = os.stat(final_path).st_size
         if downloaded_file_size != file_size:
             print(f"\t[-] {file_name} size check failed, file could be broken\n")
             return
 
-    mark_as_downloaded(item_url, download_path)
+    mark_url_as_downloaded(item_url, download_path)
 
     return
 
@@ -169,14 +253,9 @@ def create_session():
     })
     return session
 
-def get_url_data(url):
-    parsed_url = urlparse(url)
-    return {'file_name': os.path.basename(parsed_url.path), 'extension': os.path.splitext(parsed_url.path)[1], 'hostname': parsed_url.hostname}
+def get_and_prepare_download_path(default_path, album_name):
 
-def get_and_prepare_download_path(custom_path, album_name):
-
-    final_path = 'downloads' if custom_path is None else custom_path
-    final_path = os.path.join(final_path, album_name) if album_name is not None else 'downloads'
+    final_path = os.path.join(default_path, album_name) if album_name is not None else 'downloads'
     final_path = final_path.replace('\n', '')
 
     if not os.path.isdir(final_path):
@@ -197,7 +276,7 @@ def write_url_to_list(item_url, download_path):
 
     return
 
-def get_already_downloaded_url(download_path):
+def get_already_downloaded_urls(download_path):
 
     file_path = os.path.join(download_path, 'already_downloaded.txt')
 
@@ -207,7 +286,7 @@ def get_already_downloaded_url(download_path):
     with open(file_path, 'r', encoding='utf-8') as f:
         return f.read().splitlines()
 
-def mark_as_downloaded(item_url, download_path):
+def mark_url_as_downloaded(item_url, download_path):
 
     file_path = os.path.join(download_path, 'already_downloaded.txt')
     with open(file_path, 'a', encoding='utf-8') as f:
@@ -218,7 +297,7 @@ def mark_as_downloaded(item_url, download_path):
 def remove_illegal_chars(string):
     return re.sub(r'[<>:"/\\|?*\']|[\0-\31]', "-", string).strip()
 
-def get_bunkr_real_url(session, file_id):
+def bunkr_get_real_url(session, file_id):
 
     r = session.post(BUNKR_METADATA_API_URL, json={'id': file_id})
     if r.status_code != 200:
@@ -228,13 +307,13 @@ def get_bunkr_real_url(session, file_id):
     meta = json.loads(r.content)
     media_path = meta['path']
 
-    signed = get_signed_params(session, media_path)
+    signed = bunkr_get_signed_params(session, media_path)
     if signed is None:
         return None
 
     return {'url': f"{meta['mediafiles']}{media_path}?token={signed['token']}&ex={signed['ex']}{'&n=' + meta.get('original') if meta.get('original') is not None else ''}", 'name': meta.get('original')}
 
-def get_signed_params(session, path):
+def bunkr_get_signed_params(session, path):
 
     r = session.get(BUNKR_SIGN_API_URL, params={'path': path})
     if r.status_code != 200:
@@ -243,7 +322,7 @@ def get_signed_params(session, path):
 
     return json.loads(r.content)
 
-def date_argument(date_string):
+def date_argument_type(date_string):
     try:
         return datetime.strptime(date_string, '%Y-%m-%dT%H:%M:%S')
     except ValueError:
@@ -260,41 +339,42 @@ def is_date_in_range(date_string, date_before, date_after):
     except ValueError:
         print(f"\t[-] Invalid file date {date_string}")
         return False
-    
-if __name__ == '__main__':
+
+def main():
     parser = argparse.ArgumentParser(sys.argv[1:])
-    parser.add_argument("-u", help="Url to fetch", type=str, required=False, default=None)
-    parser.add_argument("-f", help="File containing list of URLs to download", required=False, type=str, default=None)
+
+    required_args = parser.add_mutually_exclusive_group(required=True)
+    required_args.add_argument("-u", help="Url to fetch", type=str, default=None)
+    required_args.add_argument("-f", help="File containing list of URLs to download", type=str, default=None)
+
     parser.add_argument("-r", help="Number of retries in case the connection fails", type=int, required=False, default=10)
     parser.add_argument("-e", help="Extensions to download (comma separated)", type=str)
-    parser.add_argument("-p", help="Path to custom downloads folder")
+    parser.add_argument("-p", help="Path to custom downloads folder", default='downloads')
     parser.add_argument("-w", help="Export url list (ex: for wget)", action="store_true")
-    parser.add_argument("--before", help="Export only files before this date", type=date_argument, default=None)
-    parser.add_argument("--after", help="Export only files after this date", type=date_argument, default=None)
+    parser.add_argument("--before", help="Export only files before this date", type=date_argument_type, default=None)
+    parser.add_argument("--after", help="Export only files after this date", type=date_argument_type, default=None)
 
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding='utf-8')
 
-    if args.u is None and args.f is None:
-        print("[-] No URL or file provided")
-        sys.exit(1)
-
-    if args.u is not None and args.f is not None:
-        print("[-] Please provide only one URL or file")
-        sys.exit(1)
-
     session = create_session()
 
+    global MAX_RETRIES
     MAX_RETRIES = args.r
+
+    options = Options(args.e.split(',') if args.e is not None else [], args.w, args.p, args.before, args.after)
 
     if args.f is not None:
         with open(args.f, 'r', encoding='utf-8') as f:
             urls = f.read().splitlines()
+
         for url in urls:
             print(f"\t[-] Processing \"{url}\"...")
-            get_items_list(session, url, args.e, args.w, args.p, date_before=args.before, date_after=args.after)
-        sys.exit(0)
+            get_items_list(session, url, options)
     else:
-        get_items_list(session, args.u, args.e, args.w, args.p, date_before=args.before, date_after=args.after)
+        get_items_list(session, args.u, options)
         
-    sys.exit(0)
+    return
+    
+if __name__ == '__main__':
+    main()
