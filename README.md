@@ -18,6 +18,7 @@ A lightweight Python downloader for Cyberdrop and Bunkr albums and files, suppor
 
 - Cyberdrop
 - Bunkr
+- Filester
 
 Both single album URLs and lists of URLs are supported.
 
