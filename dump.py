@@ -22,6 +22,8 @@ FILESTER_METADATA_API_URL = "https://filester.me/v2/api/public/view"
 
 MAX_RETRIES = 10
 
+global_session = None
+
 class SUPPORTED_SITES(StrEnum):
     BUNKR = 'bunkr'
     CYBERDROP = 'cyberdrop'
@@ -56,7 +58,7 @@ class UrlData:
         self.url_hostname = parsed_url.hostname
         return
 
-def bunkr_get_items(soup, session, url, is_direct_link, options):
+def bunkr_get_items(soup, url, is_direct_link, options):
     items = []
 
     if is_direct_link:
@@ -65,7 +67,7 @@ def bunkr_get_items(soup, session, url, is_direct_link, options):
             album_name = soup.find('h1', {'class': 'truncate'})
 
         album_name = remove_illegal_chars(album_name.text)
-        items.append(get_real_download_url(session, url, True))
+        items.append(get_real_download_url(url, True))
     else:
         theItems = soup.find_all('div', {'class': 'theItem'})
         for theItem in theItems:
@@ -75,7 +77,7 @@ def bunkr_get_items(soup, session, url, is_direct_link, options):
                     continue
 
             box = theItem.find('a', {'class': 'after:absolute'})
-            items.append({'url': box['href'], 'size': -1, 'name': theItem.find('p').text})
+            items.append({'url': box['href'], 'name': theItem.find('p').text})
 
     return items
 
@@ -84,14 +86,14 @@ def cyberdrop_get_items(soup):
 
     items_dom = soup.find_all('a', {'class': 'image'})
     for item_dom in items_dom:
-        items.append({'url': f"https://cyberdrop.cr{item_dom['href']}", 'name': item_dom['data-src'], 'size': -1})
+        items.append({'url': f"https://cyberdrop.cr{item_dom['href']}", 'name': item_dom['data-src']})
 
     return items
 
-def prepare_download_items(items, session, is_direct_link, website, options, download_path, already_downloaded_url):
+def prepare_download_items(items, is_direct_link, website, options, download_path, already_downloaded_url):
     for item in items:
         if not is_direct_link:
-            item = get_real_download_url(session, item['url'], website, item['name'])
+            item = get_real_download_url(item['url'], website, item['name'])
 
         if item is None:
             print(f"\t\t\t[-] Unable to find a download link")
@@ -103,7 +105,7 @@ def prepare_download_items(items, session, is_direct_link, website, options, dow
             if options.only_export:
                 write_url_to_list(item['url'], download_path)
             else:
-                download(session, item['url'], download_path, website, item['name'])
+                download(item['url'], download_path, item['name'])
     return
 
 def get_website_from_page_title(page_title):
@@ -116,8 +118,8 @@ def get_website_from_page_title(page_title):
 
     return None
 
-def filester_get_real_url(slug, session):
-    r = session.post(FILESTER_METADATA_API_URL, json={'file_slug': slug})
+def filester_get_real_url(slug):
+    r = global_session.post(FILESTER_METADATA_API_URL, json={'file_slug': slug})
     if r.status_code != 200:
         print(f"\t[-] HTTP error {r.status_code} getting real url for slug {slug}")
         return None
@@ -126,8 +128,11 @@ def filester_get_real_url(slug, session):
 
     return {'url': f"{metadata['server']}/v2/{metadata['file']}?token={metadata['token']}", 'name': metadata['file']}
 
-def filester_get_items(soup):
+def filester_get_items(soup, direct_link_url=None):
     items = []
+
+    if direct_link_url:
+        return [filester_get_real_url(direct_link_url.split('/')[-1])]
 
     dom_items = soup.find_all('button', {'class': 'download-btn'})
     for dom_item in dom_items:
@@ -135,10 +140,10 @@ def filester_get_items(soup):
 
     return items
 
-def get_items_list(session, url, options, is_last_page=True):
+def get_items_list(url, options, is_last_page=True):
     items = []
        
-    r = session.get(url)
+    r = global_session.get(url)
     if r.status_code != 200:
         raise Exception(f"[-] HTTP error {r.status_code}")
 
@@ -147,57 +152,73 @@ def get_items_list(session, url, options, is_last_page=True):
 
     website = get_website_from_page_title(page_title)
 
-    is_direct_link = soup.find('span', {'class': 'ic-videos'}) is not None or soup.find('div', {'class': 'lightgallery'}) is not None
-
+    is_direct_link = None
     album_name = None
 
     if website == SUPPORTED_SITES.BUNKR:
-        items = bunkr_get_items(soup, session, url, is_direct_link, options)
+        global_session.headers.update({'Referer': 'https://bunkr.sk/'})
+
+        is_direct_link = soup.find('span', {'class': 'ic-videos'}) is not None
+        items = bunkr_get_items(soup, url, is_direct_link, options)
         album_name = remove_illegal_chars(soup.find('h1', {'class': 'truncate'}).text)
     elif website == SUPPORTED_SITES.CYBERDROP:
+        is_direct_link = soup.find('div', {'class': 'lightgallery'}) is not None
         items = cyberdrop_get_items(soup)
         album_name = remove_illegal_chars(soup.find('h1', {'id': 'title'}).text)
     elif website == SUPPORTED_SITES.FILESTER:
-        items = filester_get_items(soup)
-        album_name = remove_illegal_chars(soup.find('h1', {'class': 'folder-title'}).text)
-
+        is_direct_link = soup.find('div', {'id': 'videoContainer'})
+        items = filester_get_items(soup, url if is_direct_link else None)
+        album_name = remove_illegal_chars(soup.find('h1', {'class': 'folder-title'}).text) if not is_direct_link else None
 
     download_path = get_and_prepare_download_path(options.custom_path, album_name)
     already_downloaded_url = get_already_downloaded_urls(download_path)
 
-    prepare_download_items(items, session, is_direct_link, website, options, download_path, already_downloaded_url)
+    prepare_download_items(items, is_direct_link, website, options, download_path, already_downloaded_url)
 
-    pagination = soup.find('nav', {'class': 'pagination'})
-    if pagination is not None:
-        current_page = int(pagination.find('span', {'class': 'active'}).text)
-        page_links = [a for a in pagination.find_all('a') if a.text.strip().isdigit()]
-        last_page = int(page_links[-1].text) if page_links else current_page
+    pagination = None
 
-        if int(current_page) < int(last_page):
-            url_next_page = None
-            print(f"[!] Downloading page ({int(current_page)+1}/{last_page})")
-            if re.search(r'([?&])page=\d+', url):
-                url_next_page = re.sub(r'([?&])page=\d+', r'\1page={}'.format(current_page+1), url)
-            else:
-                url_next_page = f"{url}{'&' if '?' in url else '?'}page={(current_page+1)}"
+    if website == SUPPORTED_SITES.BUNKR:
+        pagination = soup.find('nav', {'class': 'pagination'})
+        if pagination is not None:
+            current_page = int(pagination.find('span', {'class': 'active'}).text)
+            page_links = [a for a in pagination.find_all('a') if a.text.strip().isdigit()]
+            last_page = int(page_links[-1].text) if page_links else current_page
 
-            get_items_list(session, url_next_page, options, is_last_page=(int(current_page) == int(last_page)))
+            if int(current_page) < int(last_page):
+                url_next_page = None
+                print(f"[!] Downloading page ({int(current_page)+1}/{last_page})")
+                if re.search(r'([?&])page=\d+', url):
+                    url_next_page = re.sub(r'([?&])page=\d+', r'\1page={}'.format(current_page+1), url)
+                else:
+                    url_next_page = f"{url}{'&' if '?' in url else '?'}page={(current_page+1)}"
+
+                get_items_list(url_next_page, options, is_last_page=(int(current_page) == int(last_page)))         
+    elif website == SUPPORTED_SITES.FILESTER:
+        pagination = soup.find('span', {'class': 'page-info'})
+        if pagination is not None:
+            current_page = int(pagination.text.split('/')[0].strip())
+            last_page = int(pagination.text.split('/')[-1].strip())
+
+            if current_page < last_page:
+                print(f"[!] Downloading page ({int(current_page+1)}/{last_page})")
+                url_next_page = f"{url}?page={current_page+1}" if 'page=' not in url else url.replace(f'page={current_page}', f'page={current_page+1}')
+                get_items_list(url_next_page, options, is_last_page=(int(current_page) == int(last_page)))
 
     if is_last_page:
         print(f"\t[+] File list exported in {os.path.join(download_path, 'url_list.txt')}" if options.only_export else f"\t[+] Download completed")    
 
     return
 
-def cyberdrop_get_metadata(slug, session):
-    r = session.get(f"{CYBERDROP_METADATA_API_URL_BASE}/{slug}")
+def cyberdrop_get_metadata(slug):
+    r = global_session.get(f"{CYBERDROP_METADATA_API_URL_BASE}/{slug}")
     if r.status_code != 200:
         print(f"\t\t[-] HTTP error {r.status_code} getting metadata for item {slug}")
         return None
 
     return json.loads(r.content)
 
-def cyberdrop_get_real_url(slug, session):
-    r = session.get(f"{CYBERDROP_AUTH_API_URL_BASE}/{slug}")
+def cyberdrop_get_real_url(slug):
+    r = global_session.get(f"{CYBERDROP_AUTH_API_URL_BASE}/{slug}")
     if r.status_code != 200:
         print(f"\t\t[-] HTTP error {r.status_code} getting real url for item {slug}")
         return None
@@ -206,11 +227,11 @@ def cyberdrop_get_real_url(slug, session):
 
     return signed_data['url']
     
-def get_real_download_url(session, url, website, item_name=None):
+def get_real_download_url(url, website, item_name=None):
     if website == SUPPORTED_SITES.BUNKR:
         url = url if 'https' in url else f'https://bunkr.sk{url}'
 
-        r = session.get(url)
+        r = global_session.get(url)
         if r.status_code != 200:
             print(f"\t\t[-] HTTP error {r.status_code} getting real url for {url}")
             return None
@@ -224,24 +245,24 @@ def get_real_download_url(session, url, website, item_name=None):
                 item_name = soup.find('title').text.replace(' | Bunkr', '').strip()
             print(f"\t\t[-] Error downloading \"{item_name}\": Server is down for maintenance")
             return None
-        real_url = bunkr_get_real_url(session, soup.find(attrs={'data-file-id': True})['data-file-id'])
+        real_url = bunkr_get_real_url(soup.find(attrs={'data-file-id': True})['data-file-id'])
         if real_url is None:
             return None
         
-        return {'url': real_url['url'], 'size': -1, 'name': item_name if item_name is not None else real_url['name']}
+        return {'url': real_url['url'], 'name': item_name if item_name is not None else real_url['name']}
     elif website == SUPPORTED_SITES.CYBERDROP:
         slug = url.split('/')[-1]
 
-        real_url = cyberdrop_get_real_url(slug, session)
-        metadata = cyberdrop_get_metadata(slug, session)
+        real_url = cyberdrop_get_real_url(slug)
+        metadata = cyberdrop_get_metadata(slug)
 
-        return {'url': real_url, 'size': metadata['size'], 'name': metadata['name']}
+        return {'url': real_url, 'name': metadata['name']}
     elif website == SUPPORTED_SITES.FILESTER:
-        return filester_get_real_url(url, session)
+        return filester_get_real_url(url)
         
         
 @retry(retry=retry_if_exception_type(requests.exceptions.ConnectionError), wait=wait_fixed(2), stop=stop_after_attempt(MAX_RETRIES))
-def download(session, item_url, download_path, website, file_name=None):
+def download(item_url, download_path, file_name=None):
 
     url_data = UrlData(item_url)
     file_name = url_data.file_name if file_name is None else file_name
@@ -252,7 +273,7 @@ def download(session, item_url, download_path, website, file_name=None):
         file_name = f"{int(time.time())}_{file_name}"
 
 
-    with session.get(item_url, stream=True, timeout=5) as r:
+    with global_session.get(item_url, stream=True, timeout=5) as r:
         print(f"\t[+] Downloading {item_url} ({file_name})")
         if r.status_code != 200:
             print(f"\t\t[-] Error downloading \"{file_name}\": {r.status_code}")
@@ -266,22 +287,13 @@ def download(session, item_url, download_path, website, file_name=None):
                         f.write(chunk)
                         pbar.update(len(chunk))
 
-    if website == SUPPORTED_SITES.BUNKR and file_size > -1:
-        downloaded_file_size = os.stat(final_path).st_size
-        if downloaded_file_size != file_size:
-            print(f"\t[-] {file_name} size check failed, file could be broken\n")
-            return
-
     mark_url_as_downloaded(item_url, download_path)
 
     return
 
 def create_session():
     session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-        'Referer': 'https://bunkr.sk/',
-    })
+    session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'})
     return session
 
 def get_and_prepare_download_path(default_path, album_name):
@@ -328,9 +340,9 @@ def mark_url_as_downloaded(item_url, download_path):
 def remove_illegal_chars(string):
     return re.sub(r'[<>:"/\\|?*\']|[\0-\31]', "-", string).strip()
 
-def bunkr_get_real_url(session, file_id):
+def bunkr_get_real_url(file_id):
 
-    r = session.post(BUNKR_METADATA_API_URL, json={'id': file_id})
+    r = global_session.post(BUNKR_METADATA_API_URL, json={'id': file_id})
     if r.status_code != 200:
         print(f"\t\t[-] HTTP ERROR {r.status_code} getting download metadata")
         return None
@@ -338,15 +350,15 @@ def bunkr_get_real_url(session, file_id):
     meta = json.loads(r.content)
     media_path = meta['path']
 
-    signed = bunkr_get_signed_params(session, media_path)
+    signed = bunkr_get_signed_params(media_path)
     if signed is None:
         return None
 
     return {'url': f"{meta['mediafiles']}{media_path}?token={signed['token']}&ex={signed['ex']}{'&n=' + meta.get('original') if meta.get('original') is not None else ''}", 'name': meta.get('original')}
 
-def bunkr_get_signed_params(session, path):
+def bunkr_get_signed_params(path):
 
-    r = session.get(BUNKR_SIGN_API_URL, params={'path': path})
+    r = global_session.get(BUNKR_SIGN_API_URL, params={'path': path})
     if r.status_code != 200:
         print(f"\t\t[-] HTTP ERROR {r.status_code} signing download url")
         return None
@@ -372,6 +384,9 @@ def is_date_in_range(date_string, date_before, date_after):
         return False
 
 def main():
+
+    global global_session
+
     parser = argparse.ArgumentParser(sys.argv[1:])
 
     required_args = parser.add_mutually_exclusive_group(required=True)
@@ -388,7 +403,7 @@ def main():
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding='utf-8')
 
-    session = create_session()
+    global_session = create_session()
 
     global MAX_RETRIES
     MAX_RETRIES = args.r
@@ -401,9 +416,9 @@ def main():
 
         for url in urls:
             print(f"\t[-] Processing \"{url}\"...")
-            get_items_list(session, url, options)
+            get_items_list(url, options)
     else:
-        get_items_list(session, args.u, options)
+        get_items_list(args.u, options)
         
     return
     
