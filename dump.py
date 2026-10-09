@@ -73,7 +73,7 @@ def bunkr_get_items(soup, url, is_direct_link, options):
         for theItem in theItems:
             if options.date_before is not None or options.date_after is not None:
                 date_span = theItem.find('span', {'class': 'ic-clock'})
-                if not is_date_in_range(date_span.text, options.date_before, options.date_after):
+                if not is_date_in_range(date_span.text, options.date_before, options.date_after, SUPPORTED_SITES.BUNKR):
                     continue
 
             box = theItem.find('a', {'class': 'after:absolute'})
@@ -111,7 +111,7 @@ def prepare_download_items(items, is_direct_link, website, options, download_pat
 def get_website_from_page_title(page_title):
     if "| Bunkr" in page_title:
         return SUPPORTED_SITES.BUNKR
-    elif "| CyberDrop" in page_title:
+    elif "| CyberDrop" in page_title or "CyberDrop – " in page_title:
         return SUPPORTED_SITES.CYBERDROP
     elif "| filester.me" in page_title:
         return SUPPORTED_SITES.FILESTER
@@ -128,15 +128,19 @@ def filester_get_real_url(slug):
 
     return {'url': f"{metadata['server']}/v2/{metadata['file']}?token={metadata['token']}", 'name': metadata['file']}
 
-def filester_get_items(soup, direct_link_url=None):
+def filester_get_items(soup, options, direct_link_url=None):
     items = []
 
     if direct_link_url:
         return [filester_get_real_url(direct_link_url.split('/')[-1])]
 
-    dom_items = soup.find_all('button', {'class': 'download-btn'})
+    dom_items = soup.find_all('div', {'class': 'file-item'})
     for dom_item in dom_items:
-        items.append({'url': re.search(r"downloadFile\(['\"]([^'\"]+)['\"]\)", dom_item['onclick']).group(1), 'name': None})
+        if options.date_before is not None or options.date_after is not None:
+            if not is_date_in_range(dom_item['data-date'], options.date_before, options.date_after, SUPPORTED_SITES.FILESTER):
+                continue
+            
+        items.append({'url': re.search(r'/d/(.*)', dom_item['onclick']).group(1).replace("'", ''), 'name': None})
 
     return items
 
@@ -151,6 +155,10 @@ def get_items_list(url, options, is_last_page=True):
     page_title = soup.find('title').text
 
     website = get_website_from_page_title(page_title)
+
+    if (website == SUPPORTED_SITES.CYBERDROP and (options.date_before is not None or options.date_after is not None)):
+        print(f"[!] Arguments --before and --after are not supported for this site, please remove them and try again")
+        return []
 
     is_direct_link = None
     album_name = None
@@ -167,7 +175,7 @@ def get_items_list(url, options, is_last_page=True):
         album_name = remove_illegal_chars(soup.find('h1', {'id': 'title'}).text)
     elif website == SUPPORTED_SITES.FILESTER:
         is_direct_link = soup.find('div', {'id': 'videoContainer'})
-        items = filester_get_items(soup, url if is_direct_link else None)
+        items = filester_get_items(soup, options, url if is_direct_link else None)
         album_name = remove_illegal_chars(soup.find('h1', {'class': 'folder-title'}).text) if not is_direct_link else None
 
     download_path = get_and_prepare_download_path(options.custom_path, album_name)
@@ -371,13 +379,18 @@ def date_argument_type(date_string):
     except ValueError:
         raise argparse.ArgumentTypeError("Invalid date format. Use: yyyy-mm-ddThh:mm:ss")
     
-def is_date_in_range(date_string, date_before, date_after):
+def is_date_in_range(date_string, date_before, date_after, website):
     try:
-        bunkr_date = datetime.strptime(date_string, '%H:%M:%S %d/%m/%Y')
+        file_date = None
+        if website == SUPPORTED_SITES.BUNKR:
+            file_date = datetime.strptime(date_string, '%H:%M:%S %d/%m/%Y')
+        elif website == SUPPORTED_SITES.FILESTER:
+            file_date = datetime.strptime(date_string, '%Y-%m-%dT%H:%M:%SZ')
+
         date_before = datetime.max if date_before is None else date_before
         date_after = datetime.min if date_after is None else date_after
 
-        return bunkr_date <= date_before and bunkr_date >= date_after
+        return file_date <= date_before and file_date >= date_after
 
     except ValueError:
         print(f"\t[-] Invalid file date {date_string}")
