@@ -6,7 +6,7 @@
 [![GitHub last commit](https://img.shields.io/github/last-commit/PaaaulZ/CyberdropBunkrDownloader?style=flat)](https://github.com/PaaaulZ/CyberdropBunkrDownloader/commits/main)
 
 
-A lightweight Python downloader for Cyberdrop and Bunkr albums and files, supporting batch URLs, retries, file filtering, custom output directories and date-based filtering.
+A lightweight Python downloader for Cyberdrop, Bunkr and Filester albums and files, supporting batch URLs, retries, file filtering, custom output directories and date-based filtering.
 
 ## Installation
 
