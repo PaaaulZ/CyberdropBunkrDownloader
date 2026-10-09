@@ -18,11 +18,14 @@ BUNKR_METADATA_API_URL = "https://dl.bunkr.cr/api/_001_v2"
 CYBERDROP_METADATA_API_URL_BASE = "https://api.cyberdrop.cr/api/file/info"
 CYBERDROP_AUTH_API_URL_BASE = "https://api.cyberdrop.cr/api/file/auth"
 
+FILESTER_METADATA_API_URL = "https://filester.me/v2/api/public/view"
+
 MAX_RETRIES = 10
 
 class SUPPORTED_SITES(StrEnum):
     BUNKR = 'bunkr'
     CYBERDROP = 'cyberdrop'
+    FILESTER = 'filester'
 
 class Options:
 
@@ -108,8 +111,29 @@ def get_website_from_page_title(page_title):
         return SUPPORTED_SITES.BUNKR
     elif "| CyberDrop" in page_title:
         return SUPPORTED_SITES.CYBERDROP
+    elif "| filester.me" in page_title:
+        return SUPPORTED_SITES.FILESTER
 
     return None
+
+def filester_get_real_url(slug, session):
+    r = session.post(FILESTER_METADATA_API_URL, json={'file_slug': slug})
+    if r.status_code != 200:
+        print(f"\t[-] HTTP error {r.status_code} getting real url for slug {slug}")
+        return None
+
+    metadata = json.loads(r.content.decode('utf-8'))
+
+    return {'url': f"{metadata['server']}/v2/{metadata['file']}?token={metadata['token']}", 'name': metadata['file']}
+
+def filester_get_items(soup):
+    items = []
+
+    dom_items = soup.find_all('button', {'class': 'download-btn'})
+    for dom_item in dom_items:
+        items.append({'url': re.search(r"downloadFile\(['\"]([^'\"]+)['\"]\)", dom_item['onclick']).group(1), 'name': None})
+
+    return items
 
 def get_items_list(session, url, options, is_last_page=True):
     items = []
@@ -133,6 +157,10 @@ def get_items_list(session, url, options, is_last_page=True):
     elif website == SUPPORTED_SITES.CYBERDROP:
         items = cyberdrop_get_items(soup)
         album_name = remove_illegal_chars(soup.find('h1', {'id': 'title'}).text)
+    elif website == SUPPORTED_SITES.FILESTER:
+        items = filester_get_items(soup)
+        album_name = remove_illegal_chars(soup.find('h1', {'class': 'folder-title'}).text)
+
 
     download_path = get_and_prepare_download_path(options.custom_path, album_name)
     already_downloaded_url = get_already_downloaded_urls(download_path)
@@ -208,6 +236,9 @@ def get_real_download_url(session, url, website, item_name=None):
         metadata = cyberdrop_get_metadata(slug, session)
 
         return {'url': real_url, 'size': metadata['size'], 'name': metadata['name']}
+    elif website == SUPPORTED_SITES.FILESTER:
+        return filester_get_real_url(url, session)
+        
         
 @retry(retry=retry_if_exception_type(requests.exceptions.ConnectionError), wait=wait_fixed(2), stop=stop_after_attempt(MAX_RETRIES))
 def download(session, item_url, download_path, website, file_name=None):
